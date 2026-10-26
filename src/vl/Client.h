@@ -132,6 +132,8 @@ class Client : private SessionListener {
   // Guards the outbox and module tables: hold it only around table access,
   // never across network I/O or a callback.
   ILock& lock() { return *lock_; }
+  // The queue itself, for vl::Persistence; access it only under lock().
+  Outbox& outbox() { return outbox_; }
   // Exclusive session (vl::Provisioning): like begin(), but only m's topics
   // are subscribed, only m sees Online, online() stays false and nothing
   // leaves the outbox. begin() or setCredentials() returns to the normal

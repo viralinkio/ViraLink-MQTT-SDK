@@ -82,6 +82,8 @@ class Outbox {
   size_t stampUtc(uint16_t bootId, uint64_t uptimeNow, uint64_t utcNow);
 
   size_t records() const;
+  // The index-th record from the head, for inspection. O(index).
+  bool peek(size_t index, RecordView& out) const;
   size_t inFlight() const;
   size_t bytesUsed() const { return tail_ - head_; }
   size_t capacity() const { return cap_; }
@@ -89,15 +91,50 @@ class Outbox {
   uint32_t dropped() const { return dropped_; }
   uint32_t deadLetters() const { return deadLetters_; }
 
+  // ---- Persistence (vl::Journal) ----
+  // Each record remembers the store segment holding its saved copy, or one of:
+  static const uint8_t kUnsaved = 0xFF;   // not saved yet
+  static const uint8_t kNotSaved = 0xFE;  // never saved (RPC replies, records too large to save)
+  typedef void (*RemoveHook)(uint32_t seq, void* ctx);
+  // Called whenever a saved record leaves the ring (PUBACK, eviction, dead
+  // letter), from inside the outbox call, so under the caller's lock.
+  void setRemoveHook(RemoveHook fn, void* ctx) {
+    hook_ = fn;
+    hookCtx_ = ctx;
+  }
+  // Oldest record not saved yet. The payload view is valid until the next call.
+  bool nextUnsaved(RecordView& out) const;
+  // A record whose saved copy is in segment seg.
+  bool nextInSegment(uint8_t seg, RecordView& out) const;
+  // Records where seq's saved copy now lives (a segment, or kNotSaved).
+  void setSaved(uint32_t seq, uint8_t seg);
+  size_t unsaved() const { return unsaved_; }
+  size_t unsavedControl() const { return unsavedControl_; }
+  // Puts a record read back from segment seg into the ring with its own seq:
+  // in seq order among restored records, ahead of everything queued this
+  // boot. A seq already restored only moves to seg. Data evicts older data
+  // like push(). Ok, QueueFull or TooLarge.
+  Result restore(const RecordView& rec, uint8_t seg);
+  // Removes a record without counting it or calling the hook.
+  void forget(uint32_t seq);
+  // Ends a restore: records queued before it are renumbered after maxSeq, the
+  // highest seq in the store, and numbering continues from there.
+  void finishRestore(uint32_t maxSeq);
+
  private:
   struct Hdr;
   static size_t recordSize(size_t len);
+  static bool saved(const Hdr& h);
   void readHdr(size_t off, Hdr& h) const;
   void writeHdr(size_t off, const Hdr& h);
   size_t next(size_t off) const;
-  void removeAt(size_t off);
+  void removeAt(size_t off, bool notify = true);
   void compact();
   bool evictOneData();
+  Result makeRoom(size_t need, bool data);
+  size_t insertAt(size_t pos, size_t need);
+  void writeRecord(size_t pos, const RecordMeta& meta, uint32_t seq, uint8_t seg, const uint8_t* payload, size_t len);
+  void toView(size_t off, const Hdr& h, RecordView& out) const;
   size_t findSeq(uint32_t seq, Hdr& h) const;
 
   uint8_t* buf_;
@@ -108,6 +145,10 @@ class Outbox {
   uint32_t nextSeq_ = 1;
   uint32_t dropped_ = 0;
   uint32_t deadLetters_ = 0;
+  size_t unsaved_ = 0;
+  size_t unsavedControl_ = 0;
+  RemoveHook hook_ = nullptr;
+  void* hookCtx_ = nullptr;
 };
 
 // Outbox with its own storage. N is rounded down to a multiple of 8.

@@ -43,6 +43,7 @@ clock is set are restamped when it syncs, so offline data keeps its real time.
 
 Examples: `examples/basic_telemetry` (Arduino), `examples/rpc_and_attributes` (Arduino),
 `examples/gateway` (Arduino), `examples/ota` (Arduino), `examples/provisioning` (Arduino),
+`examples/persistence` (Arduino),
 `examples/espidf_basic_telemetry` (ESP-IDF).
 
 ### API modules
@@ -208,6 +209,36 @@ prov.start(client, cfg);           // instead of client.begin(cfg)
 - `prov.forget()` erases the saved credentials; call it from
   `client.onAuthFailed` to provision again after the device was deleted.
 - On ESP32, enable NVS encryption to keep the credentials encrypted at rest.
+
+### Persistence
+
+Queued records survive restarts and power cuts when the outbox is saved to a
+store:
+
+```cpp
+vl::FileOutboxStore store("/littlefs/vl", 16, 4096);  // after LittleFS.begin(); dir must exist
+vl::Persistence persist(store);
+client.use(persist);  // before begin(): restores what an earlier boot saved
+```
+
+- Restored records go out first, in their original order. Their uptime
+  timestamps belonged to the earlier boot, so they are sent without `ts`
+  and the server stamps them (records already stamped in UTC keep it).
+- Data records are saved once 16 are waiting or 5 s after a `loop()` first
+  sees one (`VL_OUTBOX_FLUSH_RECORDS`, `VL_OUTBOX_FLUSH_MS`), so a power cut
+  loses at most that window. Control records (claims, `fw_state`, gateway
+  connect/disconnect) are saved on the next `loop()`. RPC replies are not
+  saved. Call `persist.flush()` before deep sleep.
+- Delivery is at least once: a record acknowledged shortly before a power
+  cut may be sent again after it.
+- The store is a log of CRC-checked entries in segments, recovered up to the
+  last intact entry. It needs at least 3 segments and twice the ring's
+  capacity. `FileOutboxStore` keeps one file per segment on any mounted
+  ESP32 file system (LittleFS recommended); other media implement
+  `vl::IOutboxStore`. A store error is logged and the client carries on
+  from RAM.
+- Saving runs on the client task, outside the lock, so producers never wait
+  for flash.
 
 ### Health
 

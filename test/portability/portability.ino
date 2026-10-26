@@ -37,6 +37,33 @@ vl::Gateway<2> gw;
 #if VL_ENABLE_HEALTH
 vl::Health health(30000);
 #endif
+#if VL_ENABLE_PERSISTENCE
+// A RAM-backed store, so the journal links without a file system.
+class RamStore : public vl::IOutboxStore {
+ public:
+  size_t segmentCount() const override { return 4; }
+  size_t segmentSize() const override { return sizeof(mem_[0]); }
+  vl::Result read(size_t seg, size_t off, uint8_t* buf, size_t n, size_t& got) override {
+    got = off < sizeof(mem_[0]) ? (n < sizeof(mem_[0]) - off ? n : sizeof(mem_[0]) - off) : 0;
+    memcpy(buf, mem_[seg] + off, got);
+    return vl::Result::Ok;
+  }
+  vl::Result write(size_t seg, size_t off, const uint8_t* p, size_t n) override {
+    memcpy(mem_[seg] + off, p, n);
+    return vl::Result::Ok;
+  }
+  vl::Result erase(size_t seg) override {
+    memset(mem_[seg], 0xFF, sizeof(mem_[0]));
+    return vl::Result::Ok;
+  }
+  vl::Result sync(size_t) override { return vl::Result::Ok; }
+
+ private:
+  uint8_t mem_[4][1024];
+};
+RamStore ramStore;
+vl::Persistence persist(ramStore);
+#endif
 #if VL_ENABLE_PROVISION
 vl::Provisioning prov;  // no store: provisions on every boot
 
@@ -87,6 +114,10 @@ void setup() {
 #if VL_ENABLE_HEALTH
   health.setKeys(vl::kHealthAll & ~vl::kHealthRssi);
   client.use(health);
+#endif
+#if VL_ENABLE_PERSISTENCE
+  client.use(persist);
+  persist.flush();
 #endif
 #if VL_ENABLE_GATEWAY
   client.use(gw);

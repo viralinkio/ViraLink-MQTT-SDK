@@ -9,6 +9,7 @@
 
 #include "vl/pal/Clock.h"
 #include "vl/pal/KeyValueStore.h"
+#include "vl/pal/OutboxStore.h"
 #include "vl/pal/SystemInfo.h"
 #include "vl/transport/IMqttTransport.h"
 
@@ -187,6 +188,110 @@ class FakeSystemInfo : public vl::ISystemInfo {
   bool rssi(int16_t& out) override {
     out = dBm;
     return hasRssi;
+  }
+};
+
+// NOR flash: erase sets a segment to 0xFF, a write can only clear bits. A
+// write budget models a power cut: the write that exhausts it stops part way
+// with one half-programmed byte; an erase costs 2, so the cut falls either
+// before it or half way through it; every later call fails until
+// powerCycle(). With loseUnsynced (a file system) the cut also undoes every
+// write not yet synced.
+class FakeFlash : public vl::IOutboxStore {
+ public:
+  size_t count;
+  size_t size;
+  std::vector<uint8_t> mem;
+  long budget = -1;          // bytes that may still be written; an erase costs 1; -1 = no limit
+  bool dead = false;         // power is off
+  bool failNext = false;     // the next call returns an error
+  bool overwrote = false;    // a write hit bytes that were not erased
+  bool loseUnsynced = false;
+  int writes = 0;
+  int erases = 0;
+  int syncs = 0;
+
+  FakeFlash(size_t segments, size_t segSize)
+      : count(segments), size(segSize), mem(segments * segSize, 0xFF), unsyncedFrom(segments, segSize) {}
+
+  void powerCycle() {
+    dead = false;
+    budget = -1;
+  }
+  size_t segmentCount() const override { return count; }
+  size_t segmentSize() const override { return size; }
+
+  vl::Result read(size_t seg, size_t off, uint8_t* buf, size_t n, size_t& got) override {
+    got = 0;
+    if (refuse() || seg >= count || off > size) return vl::Result::Rejected;
+    got = n < size - off ? n : size - off;
+    memcpy(buf, &mem[seg * size + off], got);
+    return vl::Result::Ok;
+  }
+  vl::Result write(size_t seg, size_t off, const uint8_t* p, size_t n) override {
+    if (refuse() || seg >= count || off + n > size) return vl::Result::Rejected;
+    ++writes;
+    size_t ok = n;
+    bool cut = budget >= 0 && static_cast<long>(n) > budget;
+    if (cut) ok = static_cast<size_t>(budget);
+    uint8_t* d = &mem[seg * size + off];
+    for (size_t i = 0; i < ok; ++i) {
+      if (d[i] != 0xFF) overwrote = true;
+      d[i] &= p[i];
+    }
+    if (off < unsyncedFrom[seg]) unsyncedFrom[seg] = off;
+    if (cut) {
+      d[ok] &= static_cast<uint8_t>(p[ok] | 0x5A);  // half-programmed
+      powerFail();
+      return vl::Result::Rejected;
+    }
+    if (budget >= 0) budget -= static_cast<long>(n);
+    return vl::Result::Ok;
+  }
+  vl::Result erase(size_t seg) override {
+    if (refuse() || seg >= count) return vl::Result::Rejected;
+    if (budget == 0 || budget == 1) {
+      if (budget == 1) {
+        ++erases;
+        memset(&mem[seg * size], 0xFF, size / 2);
+        unsyncedFrom[seg] = size;
+      }
+      powerFail();
+      return vl::Result::Rejected;
+    }
+    ++erases;
+    if (budget > 0) budget -= 2;
+    memset(&mem[seg * size], 0xFF, size);
+    unsyncedFrom[seg] = size;
+    return vl::Result::Ok;
+  }
+  vl::Result sync(size_t seg) override {
+    (void)seg;
+    if (refuse()) return vl::Result::Rejected;
+    ++syncs;
+    unsyncedFrom[seg] = size;
+    return vl::Result::Ok;
+  }
+
+ private:
+  std::vector<size_t> unsyncedFrom;  // per segment: first byte written since the last sync
+
+  void powerFail() {
+    budget = 0;
+    dead = true;
+    if (!loseUnsynced) return;
+    for (size_t seg = 0; seg < count; ++seg) {
+      if (unsyncedFrom[seg] < size) memset(&mem[seg * size + unsyncedFrom[seg]], 0xFF, size - unsyncedFrom[seg]);
+      unsyncedFrom[seg] = size;
+    }
+  }
+
+  bool refuse() {
+    if (failNext) {
+      failNext = false;
+      return true;
+    }
+    return dead;
   }
 };
 

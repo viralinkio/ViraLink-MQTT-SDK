@@ -43,6 +43,11 @@
       "name": "provisioning",
       "base": "examples/provisioning",
       "files": ["provisioning.ino"]
+    },
+    {
+      "name": "persistence",
+      "base": "examples/persistence",
+      "files": ["persistence.ino"]
     }
   ]
 }

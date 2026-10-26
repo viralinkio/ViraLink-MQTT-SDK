@@ -27,7 +27,8 @@ struct Outbox::Hdr {
   uint8_t timeKind;
   uint8_t flags;
   uint8_t strikes;
-  uint8_t pad[3];
+  uint8_t seg;  // store segment of the saved copy, kUnsaved or kNotSaved
+  uint8_t pad[2];
 };
 
 Outbox::Outbox(uint8_t* buf, size_t cap) : buf_(buf), cap_(cap), maxPayload_(cap) {
@@ -35,6 +36,8 @@ Outbox::Outbox(uint8_t* buf, size_t cap) : buf_(buf), cap_(cap), maxPayload_(cap
 }
 
 size_t Outbox::recordSize(size_t len) { return (sizeof(Hdr) + len + 7u) & ~static_cast<size_t>(7u); }
+
+bool Outbox::saved(const Hdr& h) { return h.seg != kUnsaved && h.seg != kNotSaved; }
 
 void Outbox::readHdr(size_t off, Hdr& h) const { memcpy(&h, buf_ + off, sizeof(Hdr)); }
 
@@ -53,8 +56,16 @@ void Outbox::compact() {
   head_ = 0;
 }
 
-void Outbox::removeAt(size_t off) {
-  size_t sz = next(off) - off;
+void Outbox::removeAt(size_t off, bool notify) {
+  Hdr h;
+  readHdr(off, h);
+  if (h.seg == kUnsaved) {
+    --unsaved_;
+    if (h.cls == static_cast<uint8_t>(RecordClass::Control)) --unsavedControl_;
+  } else if (notify && hook_ && saved(h)) {
+    hook_(h.seq, hookCtx_);
+  }
+  size_t sz = recordSize(h.len);
   if (off == head_) {
     head_ += sz;
   } else {
@@ -77,11 +88,7 @@ bool Outbox::evictOneData() {
   return false;
 }
 
-Result Outbox::push(const RecordMeta& meta, const uint8_t* payload, size_t len) {
-  size_t need = recordSize(len);
-  if (len > maxPayload_ || len > 0xFFFF || need > cap_ - controlReserve()) return Result::TooLarge;
-
-  bool data = meta.cls == RecordClass::Data;
+Result Outbox::makeRoom(size_t need, bool data) {
   size_t limit = data ? cap_ - controlReserve() : cap_;
   while (bytesUsed() + need > limit) {
     if (!evictOneData()) {
@@ -89,6 +96,54 @@ Result Outbox::push(const RecordMeta& meta, const uint8_t* payload, size_t len) 
       return Result::QueueFull;
     }
   }
+  return Result::Ok;
+}
+
+// Opens need bytes at pos, which must be a record boundary; returns where the
+// gap ended up after any compaction.
+size_t Outbox::insertAt(size_t pos, size_t need) {
+  if (pos == head_ && head_ >= need && head_ != tail_) {
+    head_ -= need;
+    return head_;
+  }
+  if (cap_ - tail_ < need) {
+    size_t rel = pos - head_;
+    compact();
+    pos = head_ + rel;
+  }
+  memmove(buf_ + pos + need, buf_ + pos, tail_ - pos);
+  tail_ += need;
+  return pos;
+}
+
+void Outbox::writeRecord(size_t pos, const RecordMeta& meta, uint32_t seq, uint8_t seg, const uint8_t* payload,
+                         size_t len) {
+  Hdr h;
+  memset(&h, 0, sizeof(h));
+  h.time = meta.time;
+  h.seq = seq;
+  h.arg = meta.arg;
+  h.arg2 = meta.arg2;
+  h.len = static_cast<uint16_t>(len);
+  h.dev = meta.dev;
+  h.bootId = meta.bootId;
+  h.topic = static_cast<uint8_t>(meta.topic);
+  h.cls = static_cast<uint8_t>(meta.cls);
+  h.timeKind = static_cast<uint8_t>(meta.timeKind);
+  h.seg = seg;
+  writeHdr(pos, h);
+  if (len) memcpy(buf_ + pos + sizeof(Hdr), payload, len);
+  if (seg == kUnsaved) {
+    ++unsaved_;
+    if (meta.cls == RecordClass::Control) ++unsavedControl_;
+  }
+}
+
+Result Outbox::push(const RecordMeta& meta, const uint8_t* payload, size_t len) {
+  size_t need = recordSize(len);
+  if (len > maxPayload_ || len > 0xFFFF || need > cap_ - controlReserve()) return Result::TooLarge;
+  Result r = makeRoom(need, meta.cls == RecordClass::Data);
+  if (r != Result::Ok) return r;
 
   // Priority records go after any earlier priority records but ahead of
   // everything else, so replies stay FIFO among themselves.
@@ -102,35 +157,24 @@ Result Outbox::push(const RecordMeta& meta, const uint8_t* payload, size_t len) 
       pos = next(pos);
     }
   }
-
-  if (pos == head_ && head_ >= need && head_ != tail_) {
-    head_ -= need;
-    pos = head_;
-  } else {
-    if (cap_ - tail_ < need) {
-      size_t rel = pos - head_;
-      compact();
-      pos = head_ + rel;
-    }
-    memmove(buf_ + pos + need, buf_ + pos, tail_ - pos);
-    tail_ += need;
-  }
-
-  Hdr h;
-  memset(&h, 0, sizeof(h));
-  h.time = meta.time;
-  h.seq = nextSeq_++;
-  h.arg = meta.arg;
-  h.arg2 = meta.arg2;
-  h.len = static_cast<uint16_t>(len);
-  h.dev = meta.dev;
-  h.bootId = meta.bootId;
-  h.topic = static_cast<uint8_t>(meta.topic);
-  h.cls = static_cast<uint8_t>(meta.cls);
-  h.timeKind = static_cast<uint8_t>(meta.timeKind);
-  writeHdr(pos, h);
-  if (len) memcpy(buf_ + pos + sizeof(Hdr), payload, len);
+  pos = insertAt(pos, need);
+  writeRecord(pos, meta, nextSeq_++, meta.cls == RecordClass::Priority ? kNotSaved : kUnsaved, payload, len);
   return Result::Queued;
+}
+
+void Outbox::toView(size_t off, const Hdr& h, RecordView& out) const {
+  out.meta.topic = static_cast<OutTopic>(h.topic);
+  out.meta.cls = static_cast<RecordClass>(h.cls);
+  out.meta.timeKind = static_cast<TimeKind>(h.timeKind);
+  out.meta.dev = h.dev;
+  out.meta.bootId = h.bootId;
+  out.meta.arg = h.arg;
+  out.meta.arg2 = h.arg2;
+  out.meta.time = h.time;
+  out.seq = h.seq;
+  out.strikes = h.strikes;
+  out.payload = buf_ + off + sizeof(Hdr);
+  out.len = h.len;
 }
 
 bool Outbox::beginSend(RecordView& out) {
@@ -140,18 +184,7 @@ bool Outbox::beginSend(RecordView& out) {
     if (h.flags & (kInFlight | kSending)) continue;
     h.flags |= kSending;
     writeHdr(off, h);
-    out.meta.topic = static_cast<OutTopic>(h.topic);
-    out.meta.cls = static_cast<RecordClass>(h.cls);
-    out.meta.timeKind = static_cast<TimeKind>(h.timeKind);
-    out.meta.dev = h.dev;
-    out.meta.bootId = h.bootId;
-    out.meta.arg = h.arg;
-    out.meta.arg2 = h.arg2;
-    out.meta.time = h.time;
-    out.seq = h.seq;
-    out.strikes = h.strikes;
-    out.payload = buf_ + off + sizeof(Hdr);
-    out.len = h.len;
+    toView(off, h, out);
     return true;
   }
   return false;
@@ -259,6 +292,18 @@ size_t Outbox::records() const {
   return n;
 }
 
+bool Outbox::peek(size_t index, RecordView& out) const {
+  for (size_t off = head_; off < tail_; off = next(off)) {
+    if (index-- == 0) {
+      Hdr h;
+      readHdr(off, h);
+      toView(off, h, out);
+      return true;
+    }
+  }
+  return false;
+}
+
 size_t Outbox::inFlight() const {
   size_t n = 0;
   for (size_t off = head_; off < tail_; off = next(off)) {
@@ -267,6 +312,96 @@ size_t Outbox::inFlight() const {
     if (h.flags & kInFlight) ++n;
   }
   return n;
+}
+
+// ---- Persistence ----
+
+bool Outbox::nextUnsaved(RecordView& out) const {
+  for (size_t off = head_; off < tail_; off = next(off)) {
+    Hdr h;
+    readHdr(off, h);
+    if (h.seg == kUnsaved) {
+      toView(off, h, out);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Outbox::nextInSegment(uint8_t seg, RecordView& out) const {
+  for (size_t off = head_; off < tail_; off = next(off)) {
+    Hdr h;
+    readHdr(off, h);
+    if (h.seg == seg) {
+      toView(off, h, out);
+      return true;
+    }
+  }
+  return false;
+}
+
+void Outbox::setSaved(uint32_t seq, uint8_t seg) {
+  Hdr h;
+  size_t off = findSeq(seq, h);
+  if (off == kNpos) return;
+  if (h.seg == kUnsaved && seg != kUnsaved) {
+    --unsaved_;
+    if (h.cls == static_cast<uint8_t>(RecordClass::Control)) --unsavedControl_;
+  }
+  h.seg = seg;
+  writeHdr(off, h);
+}
+
+Result Outbox::restore(const RecordView& rec, uint8_t seg) {
+  size_t need = recordSize(rec.len);
+  if (rec.len > maxPayload_ || rec.len > 0xFFFF || need > cap_ - controlReserve()) return Result::TooLarge;
+  for (size_t off = head_; off < tail_; off = next(off)) {
+    Hdr h;
+    readHdr(off, h);
+    if (saved(h) && h.seq == rec.seq) {
+      h.seg = seg;
+      writeHdr(off, h);
+      return Result::Ok;
+    }
+  }
+  Result r = makeRoom(need, rec.meta.cls == RecordClass::Data);
+  if (r != Result::Ok) return r;
+  size_t pos = head_;
+  while (pos < tail_) {
+    Hdr h;
+    readHdr(pos, h);
+    if (!saved(h) || h.seq > rec.seq) break;
+    pos = next(pos);
+  }
+  pos = insertAt(pos, need);
+  writeRecord(pos, rec.meta, rec.seq, seg, rec.payload, rec.len);
+  return Result::Ok;
+}
+
+void Outbox::forget(uint32_t seq) {
+  // Only saved records: until finishRestore() a record queued this boot may
+  // carry the same seq.
+  for (size_t off = head_; off < tail_; off = next(off)) {
+    Hdr h;
+    readHdr(off, h);
+    if (saved(h) && h.seq == seq) {
+      removeAt(off, false);
+      return;
+    }
+  }
+}
+
+void Outbox::finishRestore(uint32_t maxSeq) {
+  uint32_t seq = maxSeq + 1;
+  for (size_t off = head_; off < tail_; off = next(off)) {
+    Hdr h;
+    readHdr(off, h);
+    if (!saved(h)) {
+      h.seq = seq++;
+      writeHdr(off, h);
+    }
+  }
+  nextSeq_ = seq;
 }
 
 }  // namespace vl

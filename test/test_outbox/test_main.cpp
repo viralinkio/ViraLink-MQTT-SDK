@@ -254,6 +254,189 @@ static void test_fuzz_against_model() {
   }
 }
 
+// ---- Persistence support ----
+
+static std::string payloadOf(const RecordView& r) { return std::string(reinterpret_cast<const char*>(r.payload), r.len); }
+
+static std::vector<uint32_t> removedSeqs;
+static void onRemoved(uint32_t seq, void*) { removedSeqs.push_back(seq); }
+
+static void test_new_records_unsaved_priority_never_saved() {
+  RingOutbox<1024> o;
+  push(o, "a");
+  push(o, "c", RecordClass::Control);
+  push(o, "r", RecordClass::Priority);
+  TEST_ASSERT_EQUAL_UINT(2, o.unsaved());
+  TEST_ASSERT_EQUAL_UINT(1, o.unsavedControl());
+  RecordView r;
+  TEST_ASSERT_TRUE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_STRING("a", payloadOf(r).c_str());
+  o.setSaved(r.seq, 0);
+  TEST_ASSERT_TRUE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_STRING("c", payloadOf(r).c_str());
+  TEST_ASSERT_EQUAL(RecordClass::Control, r.meta.cls);
+  o.setSaved(r.seq, 1);
+  TEST_ASSERT_FALSE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_UINT(0, o.unsaved());
+  TEST_ASSERT_EQUAL_UINT(0, o.unsavedControl());
+  // Marking a record "never saved" also takes it off the unsaved list.
+  push(o, "big");
+  TEST_ASSERT_TRUE(o.nextUnsaved(r));
+  o.setSaved(r.seq, Outbox::kNotSaved);
+  TEST_ASSERT_FALSE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_UINT(0, o.unsaved());
+}
+
+static void test_remove_hook_only_for_saved_records() {
+  removedSeqs.clear();
+  RingOutbox<1024> o;
+  o.setRemoveHook(onRemoved, nullptr);
+  push(o, "saved");
+  push(o, "unsaved");
+  RecordView r;
+  o.nextUnsaved(r);
+  uint32_t savedSeq = r.seq;
+  o.setSaved(savedSeq, 2);
+  std::vector<std::string> s = sendAll(o);
+  TEST_ASSERT_EQUAL_UINT(2, s.size());
+  TEST_ASSERT_TRUE(o.ack(1));
+  TEST_ASSERT_TRUE(o.ack(2));
+  TEST_ASSERT_EQUAL_UINT(1, removedSeqs.size());
+  TEST_ASSERT_EQUAL_UINT32(savedSeq, removedSeqs[0]);
+  TEST_ASSERT_EQUAL_UINT(0, o.unsaved());
+}
+
+static void test_remove_hook_on_eviction_and_dead_letter() {
+  removedSeqs.clear();
+  RingOutbox<512> o;  // 461 bytes for data: three 144-byte records
+  o.setRemoveHook(onRemoved, nullptr);
+  std::string p(100, 'x');
+  push(o, p.c_str());
+  RecordView r;
+  o.nextUnsaved(r);
+  o.setSaved(r.seq, 0);
+  for (int i = 0; i < 3; ++i) push(o, p.c_str());  // the third evicts the saved one
+  TEST_ASSERT_EQUAL_UINT(1, o.dropped());
+  TEST_ASSERT_EQUAL_UINT(1, removedSeqs.size());
+  TEST_ASSERT_EQUAL_UINT32(r.seq, removedSeqs[0]);
+
+  o.nextUnsaved(r);
+  o.setSaved(r.seq, 0);
+  o.discard(r.seq);
+  TEST_ASSERT_EQUAL_UINT(2, removedSeqs.size());
+  TEST_ASSERT_EQUAL_UINT32(r.seq, removedSeqs[1]);
+}
+
+static void test_next_in_segment() {
+  RingOutbox<1024> o;
+  push(o, "a");
+  push(o, "b");
+  push(o, "c");
+  RecordView r;
+  uint8_t segs[] = {3, 4, 3};
+  for (int i = 0; i < 3; ++i) {
+    o.nextUnsaved(r);
+    o.setSaved(r.seq, segs[i]);
+  }
+  TEST_ASSERT_TRUE(o.nextInSegment(3, r));
+  TEST_ASSERT_EQUAL_STRING("a", payloadOf(r).c_str());
+  o.setSaved(r.seq, 5);  // copied forward
+  TEST_ASSERT_TRUE(o.nextInSegment(3, r));
+  TEST_ASSERT_EQUAL_STRING("c", payloadOf(r).c_str());
+  o.setSaved(r.seq, 5);
+  TEST_ASSERT_FALSE(o.nextInSegment(3, r));
+  TEST_ASSERT_TRUE(o.nextInSegment(4, r));
+  TEST_ASSERT_EQUAL_STRING("b", payloadOf(r).c_str());
+}
+
+static RecordView view(uint32_t seq, const char* payload, RecordClass cls = RecordClass::Data) {
+  RecordView r;
+  r.meta.cls = cls;
+  r.meta.topic = OutTopic::Attributes;
+  r.meta.arg = 7;
+  r.meta.time = 123;
+  r.meta.timeKind = TimeKind::Utc;
+  r.seq = seq;
+  r.payload = reinterpret_cast<const uint8_t*>(payload);
+  r.len = strlen(payload);
+  return r;
+}
+
+static void test_restore_orders_by_seq_ahead_of_new_records() {
+  RingOutbox<1024> o;
+  push(o, "new1");  // queued this boot before the restore
+  push(o, "new2");
+  TEST_ASSERT_EQUAL(Result::Ok, o.restore(view(20, "r20"), 1));
+  TEST_ASSERT_EQUAL(Result::Ok, o.restore(view(10, "r10", RecordClass::Control), 0));
+  TEST_ASSERT_EQUAL(Result::Ok, o.restore(view(30, "r30"), 1));
+  // A later copy of seq 10 only moves it to the newer segment.
+  TEST_ASSERT_EQUAL(Result::Ok, o.restore(view(10, "r10", RecordClass::Control), 2));
+  TEST_ASSERT_EQUAL_UINT(5, o.records());
+  o.finishRestore(30);
+
+  RecordView r;
+  TEST_ASSERT_TRUE(o.nextInSegment(2, r));
+  TEST_ASSERT_EQUAL_UINT32(10, r.seq);
+  TEST_ASSERT_EQUAL(RecordClass::Control, r.meta.cls);
+  TEST_ASSERT_EQUAL(OutTopic::Attributes, r.meta.topic);
+  TEST_ASSERT_EQUAL_UINT32(7, r.meta.arg);
+  TEST_ASSERT_EQUAL(TimeKind::Utc, r.meta.timeKind);
+  TEST_ASSERT_FALSE(o.nextInSegment(0, r));
+  TEST_ASSERT_EQUAL_UINT(2, o.unsaved());
+  TEST_ASSERT_EQUAL_UINT(0, o.unsavedControl());
+
+  std::vector<std::string> s = sendAll(o);
+  TEST_ASSERT_EQUAL_UINT(5, s.size());
+  TEST_ASSERT_EQUAL_STRING("r10", s[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("r20", s[1].c_str());
+  TEST_ASSERT_EQUAL_STRING("r30", s[2].c_str());
+  TEST_ASSERT_EQUAL_STRING("new1", s[3].c_str());
+  TEST_ASSERT_EQUAL_STRING("new2", s[4].c_str());
+
+  // Records queued before the restore were renumbered after it, and new ones follow.
+  TEST_ASSERT_TRUE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_UINT32(31, r.seq);
+  push(o, "next");
+  o.setSaved(31, 1);
+  TEST_ASSERT_TRUE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_UINT32(32, r.seq);
+  o.setSaved(32, 1);
+  TEST_ASSERT_TRUE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_UINT32(33, r.seq);
+}
+
+static void test_restore_forget_and_capacity() {
+  removedSeqs.clear();
+  RingOutbox<512> o;
+  o.setRemoveHook(onRemoved, nullptr);
+  std::string p(100, 'x');
+  for (uint32_t s = 1; s <= 3; ++s) TEST_ASSERT_EQUAL(Result::Ok, o.restore(view(s, p.c_str()), 0));
+  // A fourth data record evicts the oldest; the hook reports it, since it is saved.
+  TEST_ASSERT_EQUAL(Result::Ok, o.restore(view(4, p.c_str()), 0));
+  TEST_ASSERT_EQUAL_UINT(3, o.records());
+  TEST_ASSERT_EQUAL_UINT(1, o.dropped());
+  TEST_ASSERT_EQUAL_UINT(1, removedSeqs.size());
+  TEST_ASSERT_EQUAL_UINT32(1, removedSeqs[0]);
+  // A removal entry from the log: no hook, no count.
+  o.forget(3);
+  TEST_ASSERT_EQUAL_UINT(2, o.records());
+  TEST_ASSERT_EQUAL_UINT(1, removedSeqs.size());
+  TEST_ASSERT_EQUAL_UINT(1, o.dropped());
+  TEST_ASSERT_EQUAL(Result::TooLarge, o.restore(view(9, std::string(600, 'y').c_str()), 0));
+}
+
+static void test_forget_never_touches_records_queued_this_boot() {
+  RingOutbox<1024> o;
+  push(o, "new");  // seq 1, unsaved, not renumbered until finishRestore()
+  o.restore(view(1, "old"), 0);
+  o.forget(1);
+  o.forget(1);  // the log may hold the removal of a seq the ring no longer has
+  TEST_ASSERT_EQUAL_UINT(1, o.records());
+  RecordView r;
+  TEST_ASSERT_TRUE(o.nextUnsaved(r));
+  TEST_ASSERT_EQUAL_STRING("new", payloadOf(r).c_str());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_fifo_and_ack_frees);
@@ -270,5 +453,12 @@ int main() {
   RUN_TEST(test_stamp_utc_only_current_boot_uptime_records);
   RUN_TEST(test_compaction_keeps_payloads_contiguous);
   RUN_TEST(test_fuzz_against_model);
+  RUN_TEST(test_new_records_unsaved_priority_never_saved);
+  RUN_TEST(test_remove_hook_only_for_saved_records);
+  RUN_TEST(test_remove_hook_on_eviction_and_dead_letter);
+  RUN_TEST(test_next_in_segment);
+  RUN_TEST(test_restore_orders_by_seq_ahead_of_new_records);
+  RUN_TEST(test_restore_forget_and_capacity);
+  RUN_TEST(test_forget_never_touches_records_queued_this_boot);
   return UNITY_END();
 }

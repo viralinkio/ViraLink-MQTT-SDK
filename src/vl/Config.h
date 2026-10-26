@@ -27,7 +27,7 @@
 #define VL_ENABLE_PROVISION (!VL_PROFILE_LITE)
 #endif
 #ifndef VL_ENABLE_PERSISTENCE
-#define VL_ENABLE_PERSISTENCE 0
+#define VL_ENABLE_PERSISTENCE (!VL_PROFILE_LITE)
 #endif
 #ifndef VL_ENABLE_HEALTH
 #define VL_ENABLE_HEALTH 1
@@ -194,6 +194,27 @@
 #endif
 #ifndef VL_COMPAT_V1_KEYS
 #define VL_COMPAT_V1_KEYS 0
+#endif
+
+// Persistent outbox: data records are saved when this many are unsaved or the
+// oldest unsaved change is this old (control records on the next loop()); the
+// most store segments; saved records leaving the ring between two saves.
+#ifndef VL_OUTBOX_FLUSH_MS
+#define VL_OUTBOX_FLUSH_MS 5000
+#endif
+#ifndef VL_OUTBOX_FLUSH_RECORDS
+#define VL_OUTBOX_FLUSH_RECORDS 16
+#endif
+#ifndef VL_OUTBOX_MAX_SEGMENTS
+#define VL_OUTBOX_MAX_SEGMENTS 32
+#endif
+#ifndef VL_OUTBOX_REMOVALS
+#define VL_OUTBOX_REMOVALS 32
+#endif
+// Persistence copies one record at a time through this buffer; a record
+// longer than it, less 34 bytes, stays in RAM only.
+#ifndef VL_OUTBOX_SCRATCH_SIZE
+#define VL_OUTBOX_SCRATCH_SIZE VL_TX_BUFFER_SIZE
 #endif
 
 // Wall-clock floor (2026-01-01T00:00:00Z). Anything earlier is "clock unknown".
