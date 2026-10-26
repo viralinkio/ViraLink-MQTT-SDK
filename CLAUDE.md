@@ -1,8 +1,8 @@
-# ViraLink Device Client v2
+# ViraLink-MQTT-SDK v2
 
 ThingsBoard-compatible MQTT device and gateway client for microcontrollers
 (ESP32 today; ESP8266, STM32 and AVR planned). The spec is
-`docs/design/ViraLink Device Client v2 — Design Document.md`; read the relevant
+`docs/design/ViraLink-MQTT-SDK v2 — Design Document.md`; read the relevant
 section before adding a feature.
 
 ## Commands
@@ -10,6 +10,7 @@ section before adding a feature.
 ```sh
 pio test -e native            # host unit tests, ASan + UBSan, -Werror
 scripts/build_examples.sh     # every example: Arduino + ESP-IDF via PlatformIO
+scripts/version.sh set X.Y.Z  # bump the version in all three manifests at once
 ```
 
 Both must pass before work is called done. ESP-IDF builds need the

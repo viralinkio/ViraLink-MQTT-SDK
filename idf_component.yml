@@ -1,6 +1,6 @@
 version: "2.0.0-alpha.1"
 description: ThingsBoard-compatible MQTT device and gateway client with an at-least-once offline outbox.
-url: https://github.com/viralinkio/ViraLink-Device-Client
+url: https://github.com/viralinkio/ViraLink-MQTT-SDK
 license: Apache-2.0
 targets:
   - esp32
@@ -17,3 +17,8 @@ files:
     - "docs/**/*"
     - "test/**/*"
     - "scripts/**/*"
+    - "include/**/*"
+    - "lib/**/*"
+    - "CLAUDE.md"
+    - "platformio.ini"
+    - ".gitignore"

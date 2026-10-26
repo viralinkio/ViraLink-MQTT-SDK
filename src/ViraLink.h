@@ -1,4 +1,4 @@
-// ViraLink Device Client v2: ThingsBoard-compatible MQTT device client.
+// ViraLink-MQTT-SDK v2: ThingsBoard-compatible MQTT device client.
 // Works with Arduino IDE, PlatformIO (Arduino and ESP-IDF frameworks) and
 // ESP-IDF (as a component).
 #pragma once

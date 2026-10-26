@@ -9,6 +9,7 @@ BOARDS="${BOARDS:-esp32dev}"
 # Platform per framework; override to test other arduino-esp32 / ESP-IDF releases.
 ARDUINO_PLATFORM="${ARDUINO_PLATFORM:-espressif32}"
 IDF_PLATFORM="${IDF_PLATFORM:-espressif32@6.6.0}"  # ESP-IDF 5.2
+"$ROOT/scripts/version.sh" check >/dev/null  # the three manifests must agree before anything ships
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 

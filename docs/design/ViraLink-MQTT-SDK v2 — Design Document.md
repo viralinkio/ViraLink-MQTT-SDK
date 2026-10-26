@@ -1,10 +1,10 @@
-# ViraLink Device Client v2 — Design Document
+# ViraLink-MQTT-SDK v2 — Design Document
 
 Sep 28, 2026 · @Amir
 
 ## Summary
 
-ViraLink Device Client v2 is a new embedded library that combines the operational strengths of ViraLink-MQTT-Client 1.0.2 with the full ThingsBoard device API. From ViraLink it keeps the offline queue, network failover, gateway mode and health attributes. From the ThingsBoard Arduino SDK it takes provisioning, two-way RPC, attribute requests and OTA. It is wire-compatible with the ThingsBoard CE MQTT device and gateway APIs, so it works against ViraLink Console and any ThingsBoard server. It is a new project in its own repository, `ViraLink-Device-Client`, written from scratch rather than patched, because the 1.0.2 defects sit in the queue, session and OTA cores. ViraLink-MQTT-Client 1.0.2 stays available, unchanged, for existing products.
+ViraLink-MQTT-SDK v2 is a new embedded library that combines the operational strengths of ViraLink-MQTT-Client 1.0.2 with the full ThingsBoard device API. From ViraLink it keeps the offline queue, network failover, gateway mode and health attributes. From the ThingsBoard Arduino SDK it takes provisioning, two-way RPC, attribute requests and OTA. It is wire-compatible with the ThingsBoard CE MQTT device and gateway APIs, so it works against ViraLink Console and any ThingsBoard server. It is a new project in its own repository, `ViraLink-MQTT-SDK`, written from scratch rather than patched, because the 1.0.2 defects sit in the queue, session and OTA cores. ViraLink-MQTT-Client 1.0.2 stays available, unchanged, for existing products.
 
 ### Goals
 
@@ -391,7 +391,7 @@ Work proceeds in five phases. Each ends at a gate, and a phase starts only after
 | Question | Decision |
 | --- | --- |
 | Base | A new project written from scratch to this design. Nothing is carried over from the 1.0.2 code or from the internal Device-SDK; only the behaviours listed under Background are reimplemented. |
-| Repository | A new `ViraLink-Device-Client` repository. ViraLink-MQTT-Client stays at 1.0.2 and gets a README note pointing to the new library. |
+| Repository | A new `ViraLink-MQTT-SDK` repository. ViraLink-MQTT-Client stays at 1.0.2 and gets a README note pointing to the new library. |
 | Server-side extras | None. The ViraLink fork uses the stock ThingsBoard CE device API, so there are no custom topics to support. |
 | QoS1 transport | esp-mqtt on ESP32. lwmqtt (arduino-mqtt) on ESP8266 and STM32, with one QoS1 message in flight. |
 | Persistence | LittleFS on a dedicated partition on ESP32; SPI NOR flash on STM32 boards; FRAM only where losing data at power-off is unacceptable. |
