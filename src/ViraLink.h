@@ -16,6 +16,7 @@
 #include "vl/api/Rpc.h"
 #include "vl/core/JsonReader.h"
 #include "vl/core/JsonWriter.h"
+#include "vl/net/Networks.h"
 #include "vl/pal/FileOutboxStore.h"
 #include "vl/se/Atecc608.h"
 #include "vl/transport/AteccTlsStream.h"
@@ -28,6 +29,7 @@
 
 #if VL_PLATFORM_ESP32
 #include "vl/platform/esp32/EspMqtt.h"
+#include "vl/platform/esp32/EspNetif.h"
 #include "vl/platform/esp32/EspNvs.h"
 #include "vl/platform/esp32/EspOta.h"
 #endif

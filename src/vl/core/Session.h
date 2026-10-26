@@ -80,6 +80,7 @@ class Session {
   uint64_t deadline_ = 0;  // timeout or retry time for the current state
   uint32_t pendingSubacks_ = 0;
   uint32_t connects_ = 0;
+  bool linkWasUp_ = true;  // transport's linkUp() at the last tick
 };
 
 }  // namespace vl

@@ -74,6 +74,9 @@ void Session::fail(uint64_t nowMs, uint32_t minDelayMs) {
 }
 
 void Session::tick(uint64_t nowMs) {
+  bool linkUp = transport_.linkUp();
+  bool linkReturned = linkUp && !linkWasUp_;
+  linkWasUp_ = linkUp;
   switch (state_) {
     case State::Connecting:
       if (nowMs >= deadline_) {
@@ -94,6 +97,14 @@ void Session::tick(uint64_t nowMs) {
       if (!transport_.connected()) fail(nowMs, 0);
       break;
     case State::Backoff:
+      if (linkReturned) {
+        VL_LOGI("session: network back, connecting now");
+        backoff_.reset();
+        connectNow(nowMs);
+      } else if (nowMs >= deadline_) {
+        connectNow(nowMs);
+      }
+      break;
     case State::AuthFailed:
       if (nowMs >= deadline_) connectNow(nowMs);
       break;

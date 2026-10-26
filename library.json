@@ -58,6 +58,11 @@
       "name": "secure_mtls",
       "base": "examples/secure_mtls",
       "files": ["secure_mtls.ino"]
+    },
+    {
+      "name": "multi_network",
+      "base": "examples/multi_network",
+      "files": ["multi_network.ino"]
     }
   ]
 }

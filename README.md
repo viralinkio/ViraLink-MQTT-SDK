@@ -8,8 +8,8 @@ server. Design: [`docs/design/`](docs/design/).
 scheduler, server- and client-side RPC, attribute requests, shared-attribute
 updates and binding, client-attribute reporting, device claiming, the
 gateway API, OTA, provisioning, health, persistence, TLS with ATECC608 keys,
-and the esp-mqtt and Arduino `Client` transports. Still to come: network
-failover, and the ESP8266/STM32/AVR ports.
+the esp-mqtt and Arduino `Client` transports, and network failover. Still
+to come: the ESP8266/STM32/AVR ports.
 
 ## Install
 
@@ -45,7 +45,8 @@ clock is set are restamped when it syncs, so offline data keeps its real time.
 Examples: `examples/basic_telemetry` (Arduino), `examples/rpc_and_attributes` (Arduino),
 `examples/gateway` (Arduino), `examples/ota` (Arduino), `examples/provisioning` (Arduino),
 `examples/persistence` (Arduino), `examples/arduino_client` (Arduino),
-`examples/secure_mtls` (Arduino), `examples/espidf_basic_telemetry` (ESP-IDF).
+`examples/secure_mtls` (Arduino), `examples/multi_network` (Arduino),
+`examples/espidf_basic_telemetry` (ESP-IDF).
 
 ### API modules
 
@@ -338,6 +339,46 @@ cfg.tls = &identity;
   `VL_TIME_FLOOR_S`. esp-tls checks dates only on ESP-IDF builds with
   `CONFIG_MBEDTLS_HAVE_TIME_DATE`, which makes TLS wait for SNTP; Arduino's
   prebuilt `EspMqtt` does not check them.
+
+### Several networks
+
+`vl::Networks<N>` lets the client use several networks in priority order. It
+is the client's transport, forwarding to the transport of the network in use:
+
+```cpp
+vl::EspMqtt mqtt;
+vl::EspNetif ethernet("eth", "ETH_DEF", mqtt);    // LAN8720 and other PHYs
+vl::EspNetif wifi("wifi", "WIFI_STA_DEF", mqtt);  // one EspMqtt for both: lwIP interfaces
+vl::Networks<3> nets;
+vl::Client client(nets, outbox);
+
+nets.add(ethernet);       // best first
+nets.add(wifi);
+health.setSource(nets);   // vl_iface / vl_rssi: the network in use
+```
+
+- When the network in use goes down, the session moves to the best one that
+  is up at once. It moves back to a better network only after that one has
+  stayed up for 30 s without a break (`Timing::failBackMs`), so a flapping
+  link does not bounce it. Records not yet acknowledged are sent again over
+  the new network.
+- A network that is up but reaches no broker (WiFi without an uplink) is
+  left after 120 s without a CONNACK when another one is up, and may not win
+  the session back for 5 minutes (`stallMs`, `retryMs`). Any CONNACK, even a
+  refusal, counts as reaching the broker.
+- When no network is up the client waits; the moment one comes up it
+  connects, without waiting out its backoff.
+- `EspNetif` takes any ESP32 lwIP interface by key (`WIFI_STA_DEF`, `ETH_DEF`,
+  `PPP_DEF`); before each connect it makes that interface lwIP's default
+  route. lwIP has one DNS server list for all interfaces, so when they sit on
+  different LANs use a public resolver.
+- A modem through TinyGSM brings its own transport,
+  `BufferedStreamMqtt` over `ArduinoStream(gsmClient)`, wrapped in
+  `vl::LinkNetwork("gsm", gsmMqtt, upFn, ctx, 5000)`; the last argument runs
+  a slow check (an AT command) at most every 5 s. Keeping the modem attached
+  is the application's job.
+- Every network's transport must accept `Config::tls`, and the largest
+  publish is the smallest any of them allows.
 
 ### Claiming
 

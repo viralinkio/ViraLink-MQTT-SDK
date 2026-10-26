@@ -328,9 +328,36 @@ static void test_stop() {
   TEST_ASSERT_EQUAL(State::Idle, r.s.state());
 }
 
+static void test_link_return_skips_backoff() {
+  Rig r;
+  r.startAndConnect(0);
+  for (int i = 0; i < 6; ++i) {  // grow the backoff well past a second
+    r.s.closed(r.s.retryAt());
+    r.s.tick(r.s.retryAt());
+  }
+  r.t.link = false;
+  r.s.closed(100000);
+  TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
+  TEST_ASSERT_TRUE(r.s.retryAt() > 100000 + 10000);
+  int calls = r.t.connectCalls;
+  r.s.tick(100100);  // no path: keep waiting
+  TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
+  r.t.link = true;
+  r.s.tick(100200);  // a path is back: connect now, with a fresh backoff
+  TEST_ASSERT_EQUAL(State::Connecting, r.s.state());
+  TEST_ASSERT_EQUAL(calls + 1, r.t.connectCalls);
+  r.s.closed(100300);
+  TEST_ASSERT_TRUE(r.s.retryAt() <= 100300 + 1200);
+
+  // A link that never went down changes nothing.
+  r.s.tick(100400);
+  TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_online_only_after_every_suback);
+  RUN_TEST(test_link_return_skips_backoff);
   RUN_TEST(test_resubscribes_on_every_reconnect);
   RUN_TEST(test_refused_suback_fails_session);
   RUN_TEST(test_suback_timeout);

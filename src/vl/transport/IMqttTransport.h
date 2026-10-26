@@ -86,6 +86,9 @@ class IMqttTransport {
   virtual Result validate(const ConnectOptions& o) const {
     return o.tls && o.tls->secureElement() ? Result::Rejected : Result::Ok;
   }
+  // Whether any network path to the broker exists. When it returns after
+  // being down, the session stops waiting out its backoff and connects.
+  virtual bool linkUp() const { return true; }
   virtual void beginConnect(const ConnectOptions& opts) = 0;  // non-blocking; result via onConnack
   virtual void disconnect() = 0;
   virtual bool connected() const = 0;
