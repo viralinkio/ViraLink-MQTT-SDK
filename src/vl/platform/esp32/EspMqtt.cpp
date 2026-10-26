@@ -62,6 +62,28 @@ bool EspMqtt::allocate() {
   return true;
 }
 
+Result EspMqtt::validate(const ConnectOptions& o) const {
+  const SecureElement* se = o.tls ? o.tls->secureElement() : nullptr;
+  if (!se) return Result::Ok;
+#if defined(CONFIG_ESP_TLS_USE_SECURE_ELEMENT)
+  // esp-tls always signs with slot 0, at the address Kconfig sets.
+#if defined(CONFIG_ATCA_I2C_ADDRESS)
+  const uint8_t address = static_cast<uint8_t>(CONFIG_ATCA_I2C_ADDRESS >> 1);
+#else
+  const uint8_t address = se->i2cAddress;
+#endif
+  if (se->keySlot != 0 || se->i2cAddress != address) {
+    VL_LOGE("esp-mqtt: esp-tls uses key slot 0 at I2C address 0x%02x", address);
+    return Result::Rejected;
+  }
+  return Result::Ok;
+#else
+  VL_LOGE("esp-mqtt: a secure element needs ESP-IDF with CONFIG_ESP_TLS_USE_SECURE_ELEMENT "
+          "(on Arduino: StreamMqtt with AteccTlsClient)");
+  return Result::Rejected;
+#endif
+}
+
 void EspMqtt::beginConnect(const ConnectOptions& o) {
   disconnect();
   if (!allocate()) {
@@ -73,7 +95,8 @@ void EspMqtt::beginConnect(const ConnectOptions& o) {
   memset(&c, 0, sizeof(c));
   const char* ca = o.tls ? o.tls->caPem() : nullptr;
   const char* cert = o.tls ? o.tls->clientCertPem() : nullptr;
-  const char* key = o.tls ? o.tls->clientKeyPem() : nullptr;
+  const bool se = o.tls && o.tls->secureElement();
+  const char* key = o.tls && !se ? o.tls->clientKeyPem() : nullptr;
 #if ESP_IDF_VERSION_MAJOR >= 5
   c.broker.address.hostname = o.host;
   c.broker.address.port = o.port;
@@ -87,6 +110,7 @@ void EspMqtt::beginConnect(const ConnectOptions& o) {
   c.credentials.authentication.password = o.password;
   c.credentials.authentication.certificate = cert;
   c.credentials.authentication.key = key;
+  c.credentials.authentication.use_secure_element = se;
   c.session.keepalive = o.keepAliveS;
   c.session.disable_clean_session = false;
   c.session.protocol_ver = MQTT_PROTOCOL_V_3_1_1;
@@ -106,6 +130,7 @@ void EspMqtt::beginConnect(const ConnectOptions& o) {
   c.password = o.password;
   c.client_cert_pem = cert;
   c.client_key_pem = key;
+  c.use_secure_element = se;
   c.keepalive = o.keepAliveS;
   c.disable_clean_session = false;
   c.protocol_ver = MQTT_PROTOCOL_V_3_1_1;

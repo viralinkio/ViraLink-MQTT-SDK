@@ -27,6 +27,9 @@ class EspMqtt : public IMqttTransport {
   explicit EspMqtt(size_t bufferSize = VL_TX_BUFFER_SIZE, size_t eventQueueBytes = 2 * VL_TX_BUFFER_SIZE);
   ~EspMqtt() override;
 
+  // Refuses a secure element unless the build enables esp-tls support for
+  // it, with the key slot and I2C address Kconfig sets.
+  Result validate(const ConnectOptions& o) const override;
   void beginConnect(const ConnectOptions& opts) override;
   void disconnect() override;
   bool connected() const override { return connected_; }

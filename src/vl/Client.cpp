@@ -110,6 +110,12 @@ Result Client::beginSession(const Config& cfg, IApiModule* exclusive) {
   if (!cfg.host || !cfg.host[0] || cfg.maxInFlight == 0) return Result::Rejected;
   if (cfg.auth.kind == Credentials::Kind::None) return Result::Rejected;
   if (cfg.auth.kind == Credentials::Kind::X509 && !cfg.tls) return Result::Rejected;
+  ConnectOptions probe;
+  probe.host = cfg.host;
+  probe.port = cfg.port;
+  probe.tls = cfg.tls;
+  Result v = transport_.validate(probe);
+  if (v != Result::Ok) return v;
   cfg_ = cfg;
   cfg_.clientId = nullptr;  // copied below; never keep caller pointers
   cfg_.auth = Credentials();

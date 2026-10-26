@@ -3,7 +3,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vl/Result.h"
+
 namespace vl {
+
+// A private key that never leaves a secure element (ATECC608A/B on I2C). The
+// client certificate is ITlsProvider::clientCertPem(), or on ESP-IDF builds
+// for Trust&GO / TrustFLEX parts, read from the chip.
+struct SecureElement {
+  uint8_t i2cAddress = 0x60;  // 7-bit; factory default. Trust&GO 0x35, TrustFLEX 0x36
+  uint8_t keySlot = 0;
+};
 
 // Trust anchors and client identity for TLS. Pin the CA, never the server
 // leaf certificate: ThingsBoard 4.2.2.2+ rotates server certificates live.
@@ -13,6 +23,7 @@ class ITlsProvider {
   virtual const char* caPem() const = 0;
   virtual const char* clientCertPem() const { return nullptr; }  // mTLS only
   virtual const char* clientKeyPem() const { return nullptr; }   // null when the key lives in a secure element
+  virtual const SecureElement* secureElement() const { return nullptr; }
 };
 
 // PEM strings held by the application (must outlive the client).
@@ -28,6 +39,23 @@ class PemTls : public ITlsProvider {
   const char* ca_;
   const char* cert_;
   const char* key_;
+};
+
+// mTLS with the key in a secure element; certPem may be null where the chip
+// holds the certificate (ESP-IDF, Trust&GO / TrustFLEX). Strings must outlive
+// the client.
+class SecureElementTls : public ITlsProvider {
+ public:
+  explicit SecureElementTls(const char* ca, const char* certPem = nullptr, SecureElement se = SecureElement())
+      : ca_(ca), cert_(certPem), se_(se) {}
+  const char* caPem() const override { return ca_; }
+  const char* clientCertPem() const override { return cert_; }
+  const SecureElement* secureElement() const override { return &se_; }
+
+ private:
+  const char* ca_;
+  const char* cert_;
+  SecureElement se_;
 };
 
 struct ConnectOptions {
@@ -52,6 +80,12 @@ class IMqttTransport {
 
   virtual ~IMqttTransport() {}
 
+  // Whether this transport can make the connection o describes (credentials
+  // aside); begin() refuses anything but Ok. The default refuses a secure
+  // element, which a transport must support explicitly.
+  virtual Result validate(const ConnectOptions& o) const {
+    return o.tls && o.tls->secureElement() ? Result::Rejected : Result::Ok;
+  }
   virtual void beginConnect(const ConnectOptions& opts) = 0;  // non-blocking; result via onConnack
   virtual void disconnect() = 0;
   virtual bool connected() const = 0;

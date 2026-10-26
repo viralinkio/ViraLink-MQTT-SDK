@@ -81,6 +81,38 @@ static void test_begin_validates_config() {
   TEST_ASSERT_EQUAL(Result::Rejected, r.c.begin(bad));
 }
 
+static void test_begin_refuses_what_the_transport_cannot_do() {
+  Rig r;
+  PemTls tls("CA");
+  r.cfg.tls = &tls;
+  r.cfg.port = 8883;
+  r.t.verdict = Result::Rejected;
+  TEST_ASSERT_EQUAL(Result::Rejected, r.c.begin(r.cfg));
+  TEST_ASSERT_EQUAL(0, r.t.connectCalls);
+  TEST_ASSERT_EQUAL_STRING("console.viralink.ir", r.t.validated.host);
+  TEST_ASSERT_EQUAL_UINT16(8883, r.t.validated.port);
+  TEST_ASSERT_TRUE(r.t.validated.tls == &tls);
+  r.t.verdict = Result::Ok;
+  TEST_ASSERT_EQUAL(Result::Ok, r.c.begin(r.cfg));
+}
+
+static void test_secure_element_needs_a_transport_that_supports_it() {
+  FakeTransport t;
+  ConnectOptions o;
+  TEST_ASSERT_EQUAL(Result::Ok, t.IMqttTransport::validate(o));
+  PemTls pem("CA", "CERT", "KEY");
+  o.tls = &pem;
+  TEST_ASSERT_EQUAL(Result::Ok, t.IMqttTransport::validate(o));
+  SecureElementTls se("CA", "CERT");
+  o.tls = &se;
+  TEST_ASSERT_EQUAL(Result::Rejected, t.IMqttTransport::validate(o));  // the default: not supported
+  TEST_ASSERT_NOT_NULL(se.secureElement());
+  TEST_ASSERT_EQUAL_HEX8(0x60, se.secureElement()->i2cAddress);
+  TEST_ASSERT_EQUAL_UINT8(0, se.secureElement()->keySlot);
+  TEST_ASSERT_NULL(se.clientKeyPem());
+  TEST_ASSERT_NULL(pem.secureElement());
+}
+
 static void test_credentials_and_default_client_id() {
   Rig r;
   r.connect();
@@ -388,6 +420,8 @@ static void test_claim() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_begin_validates_config);
+  RUN_TEST(test_begin_refuses_what_the_transport_cannot_do);
+  RUN_TEST(test_secure_element_needs_a_transport_that_supports_it);
   RUN_TEST(test_credentials_and_default_client_id);
   RUN_TEST(test_basic_auth_uses_its_client_id);
   RUN_TEST(test_nothing_published_before_online);

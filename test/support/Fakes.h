@@ -43,6 +43,8 @@ class FakeTransport : public vl::IMqttTransport {
   int disconnectCalls = 0;
   bool isConnected = false;
   bool failPublish = false;
+  vl::Result verdict = vl::Result::Ok;   // what validate() answers
+  mutable vl::ConnectOptions validated;  // what it was asked
   size_t packet = 1024;
   uint16_t nextPacketId = 1;
   vl::ConnectOptions lastOpts;
@@ -62,6 +64,10 @@ class FakeTransport : public vl::IMqttTransport {
     isConnected = false;
   }
   bool connected() const override { return isConnected; }
+  vl::Result validate(const vl::ConnectOptions& o) const override {
+    validated = o;
+    return verdict;
+  }
   bool publish(const char* topic, const uint8_t* p, size_t n, uint8_t qos, uint16_t* packetId) override {
     (void)qos;
     if (failPublish || !isConnected) return false;
