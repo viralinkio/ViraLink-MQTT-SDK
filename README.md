@@ -227,8 +227,14 @@ client.use(persist);  // before begin(): restores what an earlier boot saved
 - Data records are saved once 16 are waiting or 5 s after a `loop()` first
   sees one (`VL_OUTBOX_FLUSH_RECORDS`, `VL_OUTBOX_FLUSH_MS`), so a power cut
   loses at most that window. Control records (claims, `fw_state`, gateway
-  connect/disconnect) are saved on the next `loop()`. RPC replies are not
-  saved. Call `persist.flush()` before deep sleep.
+  connect/disconnect) are saved on the next `loop()`. RPC replies and
+  claims (which carry a secret, and must not be replayed after a reboot)
+  are never saved. Call `persist.flush()` before deep sleep.
+- Gateway records are saved with their sub-device's name and find it again
+  after a reboot. Attach the gateway before persistence,
+  `client.use(gw, persist)`; otherwise they are dropped with a warning.
+- Telemetry is stored as written. Enable ESP32 flash encryption if queued
+  data must not be readable from a removed flash chip.
 - Delivery is at least once: a record acknowledged shortly before a power
   cut may be sent again after it.
 - The store is a log of CRC-checked entries in segments, recovered up to the

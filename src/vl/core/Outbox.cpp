@@ -158,7 +158,8 @@ Result Outbox::push(const RecordMeta& meta, const uint8_t* payload, size_t len) 
     }
   }
   pos = insertAt(pos, need);
-  writeRecord(pos, meta, nextSeq_++, meta.cls == RecordClass::Priority ? kNotSaved : kUnsaved, payload, len);
+  bool save = meta.cls != RecordClass::Priority && !meta.transient;
+  writeRecord(pos, meta, nextSeq_++, save ? kUnsaved : kNotSaved, payload, len);
   return Result::Queued;
 }
 

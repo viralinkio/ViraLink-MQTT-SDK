@@ -20,6 +20,21 @@ void tearDown() {}
 
 namespace {
 
+// A gateway's sub-device table: index = position in names.
+struct Names : DeviceMap {
+  std::vector<std::string> names;
+  bool full = false;
+  const char* name(uint16_t dev) override { return dev < names.size() ? names[dev].c_str() : nullptr; }
+  uint16_t index(const char* name) override {
+    for (size_t i = 0; i < names.size(); ++i) {
+      if (names[i] == name) return static_cast<uint16_t>(i);
+    }
+    if (full) return kNoDevice;
+    names.push_back(name);
+    return static_cast<uint16_t>(names.size() - 1);
+  }
+};
+
 // One boot of a device: a RAM ring and a journal over a flash that outlives it.
 struct Device {
   RingOutbox<1024> outbox;
@@ -30,15 +45,15 @@ struct Device {
 
   explicit Device(FakeFlash& f) : journal(f, scratch, sizeof(scratch)) {}
 
-  Result begin() { return journal.begin(outbox, lock); }
+  Result begin(DeviceMap* names = nullptr) { return journal.begin(outbox, lock, names); }
   Result push(const std::string& p, RecordClass cls = RecordClass::Data, TimeKind tk = TimeKind::Utc,
-              uint64_t time = 1000) {
+              uint64_t time = 1000, uint16_t dev = kNoDevice) {
     RecordMeta m;
     m.topic = OutTopic::Attributes;
     m.cls = cls;
     m.timeKind = tk;
     m.time = time;
-    m.dev = 3;
+    m.dev = dev;
     m.bootId = 9;
     m.arg = 7;
     m.arg2 = 8;
@@ -99,7 +114,7 @@ static void test_saved_records_survive_restart() {
   TEST_ASSERT_EQUAL(OutTopic::Attributes, r.meta.topic);
   TEST_ASSERT_EQUAL(TimeKind::Utc, r.meta.timeKind);
   TEST_ASSERT_EQUAL_UINT64(1000, r.meta.time);
-  TEST_ASSERT_EQUAL_UINT16(3, r.meta.dev);
+  TEST_ASSERT_EQUAL_UINT16(kNoDevice, r.meta.dev);
   TEST_ASSERT_EQUAL_UINT32(7, r.meta.arg);
   TEST_ASSERT_EQUAL_UINT32(8, r.meta.arg2);
   TEST_ASSERT_TRUE(d.outbox.peek(1, r));
@@ -316,6 +331,84 @@ static void test_records_queued_before_begin_follow_restored_ones() {
   TEST_ASSERT_EQUAL_STRING("a,b,new", join(d.contents()).c_str());
 }
 
+static void test_sub_device_records_keep_their_device_by_name() {
+  FakeFlash f(6, 512);
+  {
+    Names n;
+    n.names = {"Meter-A", "Meter-B"};
+    Device d(f);
+    d.begin(&n);
+    d.push("a", RecordClass::Data, TimeKind::Utc, 1000, 0);
+    d.push("b", RecordClass::Data, TimeKind::Utc, 1000, 1);
+    d.push("main");
+    d.push("lost", RecordClass::Data, TimeKind::Utc, 1000, 7);  // unknown index: not saved
+    TEST_ASSERT_EQUAL(Result::Ok, d.journal.flush());
+  }
+  f.powerCycle();
+  // This boot the gateway added its devices in the other order.
+  Names n;
+  n.names = {"Meter-B", "Meter-A"};
+  Device d(f);
+  TEST_ASSERT_EQUAL(Result::Ok, d.begin(&n));
+  TEST_ASSERT_EQUAL_STRING("a,b,main", join(d.contents()).c_str());
+  RecordView r;
+  d.outbox.peek(0, r);
+  TEST_ASSERT_EQUAL_UINT16(1, r.meta.dev);  // Meter-A
+  d.outbox.peek(1, r);
+  TEST_ASSERT_EQUAL_UINT16(0, r.meta.dev);  // Meter-B
+  d.outbox.peek(2, r);
+  TEST_ASSERT_EQUAL_UINT16(kNoDevice, r.meta.dev);
+}
+
+static void test_sub_device_records_dropped_without_a_gateway() {
+  FakeFlash f(6, 512);
+  {
+    Names n;
+    n.names = {"Meter-A"};
+    Device d(f);
+    d.begin(&n);
+    d.push("a", RecordClass::Data, TimeKind::Utc, 1000, 0);
+    d.push("main");
+    d.journal.flush();
+  }
+  f.powerCycle();
+  {
+    Device d(f);
+    TEST_ASSERT_EQUAL(Result::Ok, d.begin());  // no map: never guess a device
+    TEST_ASSERT_EQUAL_STRING("main", join(d.contents()).c_str());
+  }
+  f.powerCycle();
+  Names full;
+  full.full = true;
+  Device d(f);
+  TEST_ASSERT_EQUAL(Result::Ok, d.begin(&full));  // table full: same
+  TEST_ASSERT_EQUAL_STRING("main", join(d.contents()).c_str());
+}
+
+static void test_transient_records_never_saved() {
+  FakeFlash f(6, 512);
+  {
+    Device d(f);
+    d.begin();
+    RecordMeta m;
+    m.cls = RecordClass::Control;
+    m.topic = OutTopic::Claim;
+    m.transient = true;
+    const char secret[] = "{\"secretKey\":\"s3cret\"}";
+    d.outbox.push(m, reinterpret_cast<const uint8_t*>(secret), strlen(secret));
+    d.push("a");
+    TEST_ASSERT_EQUAL_UINT(1, d.outbox.unsaved());
+    TEST_ASSERT_EQUAL_UINT(0, d.outbox.unsavedControl());
+    d.journal.flush();
+  }
+  std::string image(f.mem.begin(), f.mem.end());
+  TEST_ASSERT_EQUAL(std::string::npos, image.find("s3cret"));
+  f.powerCycle();
+  Device d(f);
+  d.begin();
+  TEST_ASSERT_EQUAL_STRING("a", join(d.contents()).c_str());
+}
+
 // ---- Power-cut fuzzing ----
 
 namespace {
@@ -494,6 +587,9 @@ int main() {
   RUN_TEST(test_store_error_stops_saving);
   RUN_TEST(test_store_too_small_rejected);
   RUN_TEST(test_records_queued_before_begin_follow_restored_ones);
+  RUN_TEST(test_sub_device_records_keep_their_device_by_name);
+  RUN_TEST(test_sub_device_records_dropped_without_a_gateway);
+  RUN_TEST(test_transient_records_never_saved);
   RUN_TEST(test_power_cut_fuzz_flash);
   RUN_TEST(test_power_cut_fuzz_file_system);
   RUN_TEST(test_every_cut_point_flash);

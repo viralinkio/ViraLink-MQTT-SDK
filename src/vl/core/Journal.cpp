@@ -45,23 +45,31 @@ size_t sealEntry(uint8_t* buf, uint8_t type, size_t bodyLen) {
   return kEntryHead + bodyLen + kCrcSize;
 }
 
-size_t encodeRecord(uint8_t* buf, const RecordView& v) {
+// Body: seq u32, topic u8, cls u8, timeKind u8, nameLen u8, dev u16,
+// bootId u16, arg u32, arg2 u32, time u64, device name, payload. The name
+// (gateway records only) is what identifies the device across boots.
+size_t encodeRecord(uint8_t* buf, const RecordView& v, const char* name) {
+  size_t nameLen = strlen(name);
   uint8_t* b = buf + kEntryHead;
   put<uint32_t>(b, v.seq);
   b[4] = static_cast<uint8_t>(v.meta.topic);
   b[5] = static_cast<uint8_t>(v.meta.cls);
   b[6] = static_cast<uint8_t>(v.meta.timeKind);
-  b[7] = 0;
+  b[7] = static_cast<uint8_t>(nameLen);
   put<uint16_t>(b + 8, v.meta.dev);
   put<uint16_t>(b + 10, v.meta.bootId);
   put<uint32_t>(b + 12, v.meta.arg);
   put<uint32_t>(b + 16, v.meta.arg2);
   put<uint64_t>(b + 20, v.meta.time);
-  if (v.len) memcpy(b + kRecordMeta, v.payload, v.len);
-  return sealEntry(buf, kTypeRecord, kRecordMeta + v.len);
+  memcpy(b + kRecordMeta, name, nameLen);
+  if (v.len) memcpy(b + kRecordMeta + nameLen, v.payload, v.len);
+  return sealEntry(buf, kTypeRecord, kRecordMeta + nameLen + v.len);
 }
 
-void decodeRecord(const uint8_t* body, size_t len, RecordView& v) {
+// False if the body is malformed. name gets the device name ("" for none).
+bool decodeRecord(const uint8_t* body, size_t len, RecordView& v, char* name, size_t nameCap) {
+  size_t nameLen = body[7];
+  if (kRecordMeta + nameLen > len || nameLen >= nameCap) return false;
   v.seq = get<uint32_t>(body);
   v.meta.topic = static_cast<OutTopic>(body[4]);
   v.meta.cls = static_cast<RecordClass>(body[5]);
@@ -71,8 +79,11 @@ void decodeRecord(const uint8_t* body, size_t len, RecordView& v) {
   v.meta.arg = get<uint32_t>(body + 12);
   v.meta.arg2 = get<uint32_t>(body + 16);
   v.meta.time = get<uint64_t>(body + 20);
-  v.payload = body + kRecordMeta;
-  v.len = len - kRecordMeta;
+  memcpy(name, body + kRecordMeta, nameLen);
+  name[nameLen] = 0;
+  v.payload = body + kRecordMeta + nameLen;
+  v.len = len - kRecordMeta - nameLen;
+  return true;
 }
 
 }  // namespace
@@ -178,16 +189,29 @@ Result Journal::scan(uint8_t seg, bool apply, size_t& end, bool& clean, uint32_t
     if (off == 0 && type != kTypeHeader) break;
     if (apply && type == kTypeRecord && len >= kRecordMeta) {
       RecordView v;
-      decodeRecord(body, len, v);
+      char name[VL_GW_NAME_SIZE];
+      if (!decodeRecord(body, len, v, name, sizeof(name))) {
+        off += total;
+        continue;
+      }
       if (v.seq > maxSeq) maxSeq = v.seq;
       // Uptime of an earlier boot cannot be converted any more.
       if (v.meta.timeKind == TimeKind::Uptime) v.meta.timeKind = TimeKind::None;
-      Result rr;
+      Result rr = Result::Ok;
+      bool dropped = false;
       {
         LockGuard g(*lock_);
-        rr = outbox_->restore(v, seg);
+        if (name[0] || v.meta.dev != kNoDevice) {
+          // A sub-device record gets this boot's index for its name; an index
+          // saved without a name cannot be trusted.
+          v.meta.dev = name[0] && devices_ ? devices_->index(name) : kNoDevice;
+          dropped = v.meta.dev == kNoDevice;
+        }
+        if (!dropped) rr = outbox_->restore(v, seg);
       }
-      if (rr != Result::Ok) {
+      if (dropped) {
+        VL_LOGW("outbox store: record for sub-device '%s' dropped (attach the gateway before Persistence)", name);
+      } else if (rr != Result::Ok) {
         VL_LOGW("outbox store: saved record seq=%lu not restored (%s)", static_cast<unsigned long>(v.seq), toString(rr));
       }
     } else if (apply && type == kTypeRemovals) {
@@ -204,7 +228,7 @@ Result Journal::scan(uint8_t seg, bool apply, size_t& end, bool& clean, uint32_t
   return Result::Ok;
 }
 
-Result Journal::begin(Outbox& outbox, ILock& lock) {
+Result Journal::begin(Outbox& outbox, ILock& lock, DeviceMap* devices) {
   end();
   size_t count = store_.segmentCount();
   segSize_ = store_.segmentSize();
@@ -217,6 +241,7 @@ Result Journal::begin(Outbox& outbox, ILock& lock) {
   segCount_ = static_cast<uint8_t>(count);
   outbox_ = &outbox;
   lock_ = &lock;
+  devices_ = devices;
   failed_ = false;
   dirty_ = false;
   retryAt_ = 0;
@@ -356,6 +381,14 @@ Result Journal::openNext() {
   return Result::Ok;
 }
 
+// Name of a record's sub-device; "" for the device itself, null if the
+// device is unknown and the record cannot be saved. Lock held.
+const char* Journal::deviceName(const RecordView& v) {
+  if (v.meta.dev == kNoDevice) return "";
+  const char* name = devices_ ? devices_->name(v.meta.dev) : nullptr;
+  return name && strlen(name) < VL_GW_NAME_SIZE ? name : nullptr;
+}
+
 Result Journal::reclaim(uint8_t victim) {
   for (;;) {
     size_t len = 0;
@@ -363,8 +396,13 @@ Result Journal::reclaim(uint8_t victim) {
       LockGuard g(*lock_);
       RecordView v;
       if (!outbox_->nextInSegment(victim, v)) break;
-      if (headOff_ + kRecordOverhead + v.len > segSize_) return Result::QueueFull;  // cannot happen: see openNext()
-      len = encodeRecord(scratch_, v);
+      const char* name = deviceName(v);
+      if (!name) {
+        outbox_->setSaved(v.seq, Outbox::kNotSaved);  // its saved copy goes with the segment
+        continue;
+      }
+      if (headOff_ + kRecordOverhead + strlen(name) + v.len > segSize_) return Result::QueueFull;  // see openNext()
+      len = encodeRecord(scratch_, v, name);
       outbox_->setSaved(v.seq, head_);
     }
     Result r = writeHead(len);
@@ -422,18 +460,19 @@ Result Journal::flush() {
       LockGuard g(*lock_);
       RecordView v;
       if (!outbox_->nextUnsaved(v)) break;
-      size_t need = kRecordOverhead + v.len;
-      if (need > scratchCap_ || need > segSize_ - kHeaderEntry) {
+      const char* name = deviceName(v);
+      size_t need = kRecordOverhead + (name ? strlen(name) : 0) + v.len;
+      if (!name || need > scratchCap_ || need > segSize_ - kHeaderEntry) {
         outbox_->setSaved(v.seq, Outbox::kNotSaved);
         skipped = true;
       } else if (headOpen_ && headOff_ + need <= segSize_) {
-        len = encodeRecord(scratch_, v);
+        len = encodeRecord(scratch_, v, name);
         outbox_->setSaved(v.seq, head_);
         ready = true;
       }
     }
     if (skipped) {
-      VL_LOGW("outbox store: record too large to save; it is kept in RAM only");
+      VL_LOGW("outbox store: record too large or for an unknown sub-device; it is kept in RAM only");
       continue;
     }
     if (!ready) {

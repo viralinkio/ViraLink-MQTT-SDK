@@ -117,6 +117,9 @@ class GatewayBase : public ApiModule {
   // Device-name resolver for the drain; runs with the client lock held and
   // only reads the table.
   static const char* nameOf(uint16_t dev, void* ctx);
+  // Index of name for a restored record, adding it unconnected and untyped
+  // if new; kNoDevice when the table is full. Runs with the client lock held.
+  static uint16_t indexOf(const char* name, void* ctx);
   void serveRpc(Bytes payload);
   Result requestAt(size_t index, bool client, const char* keys, GwAttrResponseCb cb, void* ctx, uint32_t timeoutMs);
   void dispatchUpdate(Bytes payload);

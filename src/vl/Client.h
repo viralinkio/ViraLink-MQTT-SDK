@@ -51,6 +51,7 @@ class Client : private SessionListener {
   typedef void (*StateCb)(State s, void* ctx);
   typedef void (*AuthFailedCb)(void* ctx);
   typedef const char* (*DeviceNameFn)(uint16_t dev, void* ctx);
+  typedef uint16_t (*DeviceIndexFn)(const char* name, void* ctx);
 
   Client(IMqttTransport& transport, Outbox& outbox);
   ~Client();
@@ -144,10 +145,16 @@ class Client : private SessionListener {
   // transmit buffer and it is published at once, bypassing the outbox.
   // NotReady when not connected, TooLarge if it did not fit.
   Result publishNow(OutTopic topic, uint32_t arg, PayloadFn fn, void* ctx);
-  void setDeviceNames(DeviceNameFn fn, void* ctx) {
-    deviceName_ = fn;
+  // Sub-device index <-> name, provided by vl::Gateway. index adds an unknown
+  // name (unconnected) so restored records find their device again.
+  void setDeviceNames(DeviceNameFn name, DeviceIndexFn index, void* ctx) {
+    deviceName_ = name;
+    deviceIndex_ = index;
     deviceNameCtx_ = ctx;
   }
+  // Call with lock() held. Null / kNoDevice without a gateway or when unknown.
+  const char* deviceName(uint16_t dev) { return deviceName_ ? deviceName_(dev, deviceNameCtx_) : nullptr; }
+  uint16_t deviceIndex(const char* name) { return deviceIndex_ ? deviceIndex_(name, deviceNameCtx_) : kNoDevice; }
 
   uint64_t uptimeMs() { return clock_->uptimeMs(); }
   bool utcMs(uint64_t& out) { return clock_->utcMs(out); }
@@ -196,6 +203,7 @@ class Client : private SessionListener {
   AuthFailedCb authCb_ = nullptr;
   void* authCtx_ = nullptr;
   DeviceNameFn deviceName_ = nullptr;
+  DeviceIndexFn deviceIndex_ = nullptr;
   void* deviceNameCtx_ = nullptr;
   IApiModule* exclusive_ = nullptr;
 

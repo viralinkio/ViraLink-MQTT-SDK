@@ -18,7 +18,10 @@ namespace vl {
 // VL_OUTBOX_FLUSH_MS or VL_OUTBOX_FLUSH_RECORDS records and control records
 // on the next loop(); a record already acknowledged by then is never written.
 // After a restart, up to one save window of delivered records may be sent
-// again (at least once). RPC replies are not saved. Runs on the client task.
+// again (at least once). RPC replies and claims are not saved. Gateway
+// records are saved with their sub-device's name: attach the gateway first,
+// client.use(gw, persist), so restored records find their device. Runs on the
+// client task.
 class Persistence : public ApiModule {
  public:
   // store must outlive this module. It needs 3 or more segments and at
@@ -42,6 +45,15 @@ class Persistence : public ApiModule {
   void tick(uint64_t nowMs) override { journal_.tick(nowMs); }
 
  private:
+  // The gateway's names, through the client.
+  class Devices : public DeviceMap {
+   public:
+    Client* client = nullptr;
+    const char* name(uint16_t dev) override;
+    uint16_t index(const char* name) override;
+  };
+
+  Devices devices_;
   uint8_t scratch_[VL_OUTBOX_SCRATCH_SIZE];
   Journal journal_;
   Result status_ = Result::NotReady;

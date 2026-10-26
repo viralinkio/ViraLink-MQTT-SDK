@@ -56,6 +56,9 @@ SubDevice GatewayBase::device(const char* name, const char* type) {
       memcpy(d.name, name, n + 1);
       memcpy(d.type, type ? type : "", tn + 1);
       d.connected = false;
+    } else if (tn && !devices_[index].type[0] && !devices_[index].connected) {
+      // Added by a restore, which knows only the name.
+      memcpy(devices_[index].type, type, tn + 1);
     }
     if (!devices_[index].connected) {
       devices_[index].connected = true;
@@ -127,6 +130,7 @@ Result GatewayBase::claimAt(size_t index, const char* secretKey, uint32_t durati
   RecordMeta m;
   m.topic = OutTopic::GwClaim;
   m.cls = RecordClass::Control;
+  m.transient = true;
   m.dev = static_cast<uint16_t>(index);
   return client_->enqueue(m, reinterpret_cast<const uint8_t*>(buf), w.size());
 }
@@ -134,6 +138,21 @@ Result GatewayBase::claimAt(size_t index, const char* secretKey, uint32_t durati
 const char* GatewayBase::nameOf(uint16_t dev, void* ctx) {
   const GatewayBase* self = static_cast<const GatewayBase*>(ctx);
   return dev < self->count_ ? self->devices_[dev].name : nullptr;
+}
+
+uint16_t GatewayBase::indexOf(const char* name, void* ctx) {
+  GatewayBase* self = static_cast<GatewayBase*>(ctx);
+  size_t n = name ? strlen(name) : 0;
+  if (n == 0 || n >= VL_GW_NAME_SIZE) return kNoDevice;
+  size_t index = self->lookup(name);
+  if (index == self->count_) {
+    if (self->count_ >= self->cap_) return kNoDevice;
+    Device& d = self->devices_[self->count_++];
+    memcpy(d.name, name, n + 1);
+    d.type[0] = 0;
+    d.connected = false;
+  }
+  return static_cast<uint16_t>(index);
 }
 
 // Detach here rather than in ~ApiModule: by then onDetach() would no longer
@@ -145,13 +164,13 @@ GatewayBase::~GatewayBase() {
 
 void GatewayBase::attach(Client& client) {
   ApiModule::attach(client);
-  client.setDeviceNames(nameOf, this);
+  client.setDeviceNames(nameOf, indexOf, this);
 }
 
 void GatewayBase::onDetach() {
   // Records still queued for sub-devices cannot be addressed any more; the
   // drain discards them as dead letters.
-  if (client_) client_->setDeviceNames(nullptr, nullptr);
+  if (client_) client_->setDeviceNames(nullptr, nullptr, nullptr);
   ApiModule::onDetach();
 }
 

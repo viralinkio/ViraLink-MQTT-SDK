@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "ClientRig.h"
+#include "vl/api/Gateway.h"
 #include "vl/api/Persistence.h"
 #include "vl/pal/FileOutboxStore.h"
 
@@ -28,6 +29,13 @@ struct Boot : ClientRig {
   explicit Boot(IOutboxStore& store) : persist(store) { c.use(persist); }
 };
 
+// A gateway attached ahead of persistence, as the docs require.
+struct GwBoot : ClientRig {
+  Gateway<4> gw;
+  Persistence persist;
+  explicit GwBoot(IOutboxStore& store) : persist(store) { c.use(gw, persist); }
+};
+
 std::string topicsAndPayloads(const std::vector<Published>& v) {
   std::string s;
   for (size_t i = 0; i < v.size(); ++i) s += (i ? " | " : "") + v[i].topic + " " + v[i].payload;
@@ -43,7 +51,11 @@ static void test_queued_records_survive_restart() {
     TEST_ASSERT_EQUAL(Result::Ok, b.persist.status());
     TEST_ASSERT_EQUAL(Result::Ok, b.c.begin(b.cfg));  // never connects
     b.c.telemetry().add("n", 1).send();
-    TEST_ASSERT_EQUAL(Result::Queued, b.c.claim("s", 1000));
+    TEST_ASSERT_EQUAL(Result::Queued, b.c.claim("s", 1000));  // holds a secret: never saved
+    RecordMeta m;
+    m.topic = OutTopic::Attributes;
+    m.cls = RecordClass::Control;
+    TEST_ASSERT_EQUAL(Result::Queued, b.c.enqueue(m, reinterpret_cast<const uint8_t*>("{\"c\":1}"), 7));
     b.c.loop();  // control record: saved now, with the telemetry before it
     TEST_ASSERT_EQUAL_UINT(0, b.c.outbox().unsaved());
     b.c.telemetry().add("n", 2).send();
@@ -62,8 +74,7 @@ static void test_queued_records_survive_restart() {
   b.connect();
   // Uptime stamps of the earlier boot are dropped: the server stamps them.
   TEST_ASSERT_EQUAL_STRING(
-      "v1/devices/me/telemetry {\"n\":1} | v1/devices/me/claim {\"secretKey\":\"s\",\"durationMs\":1000} | "
-      "v1/devices/me/telemetry {\"n\":2}",
+      "v1/devices/me/telemetry {\"n\":1} | v1/devices/me/attributes {\"c\":1} | v1/devices/me/telemetry {\"n\":2}",
       topicsAndPayloads(b.flush()).c_str());
 }
 
@@ -110,6 +121,25 @@ static void test_detach_stops_saving() {
   r.connect();
   r.c.telemetry().add("n", 1).send();
   TEST_ASSERT_EQUAL_UINT(1, r.flush().size());
+}
+
+static void test_gateway_records_restored_to_the_right_device() {
+  FakeFlash f(6, 4096);
+  {
+    GwBoot b(f);
+    b.c.begin(b.cfg);
+    b.gw.device("Meter-A", "meter").telemetry().add("kwh", 1).send();
+    b.gw.device("Meter-B", "meter").telemetry().add("kwh", 2).send();
+    TEST_ASSERT_EQUAL(Result::Ok, b.persist.flush());
+  }
+  f.powerCycle();
+  GwBoot b(f);  // no sub-device declared yet: the restore adds them by name
+  b.gw.device("Meter-B", "meter");  // and this boot B comes first
+  b.connect();
+  std::string out;
+  for (int i = 0; i < 4; ++i) out += topicsAndPayloads(b.flush()) + " | ";
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, out.find("v1/gateway/telemetry {\"Meter-A\":[{\"kwh\":1}]}"));
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, out.find("v1/gateway/telemetry {\"Meter-B\":[{\"kwh\":2}]}"));
 }
 
 #if VL_HAS_FILE_STORE
@@ -159,6 +189,7 @@ int main() {
   RUN_TEST(test_delivered_records_not_resent);
   RUN_TEST(test_unusable_store_leaves_client_in_ram);
   RUN_TEST(test_detach_stops_saving);
+  RUN_TEST(test_gateway_records_restored_to_the_right_device);
 #if VL_HAS_FILE_STORE
   RUN_TEST(test_file_store_round_trip);
 #endif

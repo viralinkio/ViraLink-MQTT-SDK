@@ -265,7 +265,7 @@ void Client::drain(uint64_t nowMs) {
         }
       }
       const char* dev = nullptr;
-      if (rec.meta.dev != kNoDevice && deviceName_) dev = deviceName_(rec.meta.dev, deviceNameCtx_);
+      if (rec.meta.dev != kNoDevice) dev = deviceName(rec.meta.dev);
       len = codec::encodeRecord(rec, hasTs, ts, dev, txBuf_, sizeof(txBuf_));
       topicLen = formatTopic(rec.meta.topic, rec.meta.arg, rec.meta.arg2, topicBuf_, sizeof(topicBuf_));
       if (len == 0 || topicLen == 0) {
@@ -352,6 +352,7 @@ Result Client::claim(const char* secretKey, uint32_t durationMs) {
   RecordMeta m;
   m.topic = OutTopic::Claim;
   m.cls = RecordClass::Control;
+  m.transient = true;
   return enqueue(m, reinterpret_cast<const uint8_t*>(buf), w.size());
 }
 

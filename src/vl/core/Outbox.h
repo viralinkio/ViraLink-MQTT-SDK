@@ -32,6 +32,7 @@ struct RecordMeta {
   uint32_t arg = 0;
   uint32_t arg2 = 0;
   uint64_t time = 0;
+  bool transient = false;  // never saved to a store: carries a secret (claims)
 };
 
 struct RecordView {
