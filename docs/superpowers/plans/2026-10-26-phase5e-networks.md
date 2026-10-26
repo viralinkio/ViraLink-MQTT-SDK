@@ -27,7 +27,8 @@ transports and clock.
   session has been trying for `stallMs` (120 s) through the active network without any CONNACK, and another network is
   up, the session moves and the stalled network sits out `retryMs` (5 min) before fail-back may pick it again. Any
   CONNACK, even a refusal, proves the path. A penalised network is still used when nothing else is up.
-- **Link return skips backoff.** `IMqttTransport::linkUp()` (default true) tells the session whether any path exists;
+- **Link return skips backoff**, once per outage and never inside a delay the server asked for (CONNACK 3), so a
+  flapping link cannot cause a reconnect storm. `IMqttTransport::linkUp()` (default true) tells the session whether any path exists;
   when it returns after being down, the session in Backoff connects at once instead of waiting out up to 60 s.
   `Networks::linkUp()` is "any network up"; with none up, `beginConnect` reports closed from `loop()`.
 - **Events** from a transport that is not the active one are ignored (a late close or PUBACK after a switch).

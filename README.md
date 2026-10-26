@@ -367,7 +367,8 @@ health.setSource(nets);   // vl_iface / vl_rssi: the network in use
   the session back for 5 minutes (`stallMs`, `retryMs`). Any CONNACK, even a
   refusal, counts as reaching the broker.
 - When no network is up the client waits; the moment one comes up it
-  connects, without waiting out its backoff.
+  connects, without waiting out its backoff (once per outage, and never
+  inside the 30 s a CONNACK 3 asks for).
 - `EspNetif` takes any ESP32 lwIP interface by key (`WIFI_STA_DEF`, `ETH_DEF`,
   `PPP_DEF`); before each connect it makes that interface lwIP's default
   route. lwIP has one DNS server list for all interfaces, so when they sit on

@@ -38,6 +38,8 @@ void Session::start(const ConnectOptions& opts, uint64_t nowMs) {
   if (state_ != State::Idle) transport_.disconnect();
   opts_ = opts;
   backoff_.reset();
+  minRetryAt_ = 0;
+  earlyRetried_ = false;
   connectNow(nowMs);
 }
 
@@ -68,6 +70,7 @@ void Session::fail(uint64_t nowMs, uint32_t minDelayMs) {
   transport_.disconnect();
   uint32_t delay = backoff_.next(minDelayMs);
   deadline_ = nowMs + delay;
+  minRetryAt_ = nowMs + minDelayMs;
   VL_LOGW("session: retry in %lu ms", static_cast<unsigned long>(delay));
   enter(State::Backoff);
   if (hadLink && listener_) listener_->onSessionLinkLost();
@@ -97,9 +100,12 @@ void Session::tick(uint64_t nowMs) {
       if (!transport_.connected()) fail(nowMs, 0);
       break;
     case State::Backoff:
-      if (linkReturned) {
+      // A returning network ends the wait early, but never before a delay the
+      // server asked for (CONNACK 3), and once per outage, so a flapping link
+      // cannot turn into a reconnect storm. The backoff keeps growing.
+      if (linkReturned && !earlyRetried_ && nowMs >= minRetryAt_) {
         VL_LOGI("session: network back, connecting now");
-        backoff_.reset();
+        earlyRetried_ = true;
         connectNow(nowMs);
       } else if (nowMs >= deadline_) {
         connectNow(nowMs);
@@ -128,6 +134,7 @@ void Session::connack(uint8_t rc, uint64_t nowMs) {
       for (size_t i = 0; i < n; ++i) transport_.subscribe(router_.filter(i), 1);
       if (pendingSubacks_ == 0) {
         backoff_.reset();
+        earlyRetried_ = false;
         enter(State::Online);
       }
       break;
@@ -167,6 +174,7 @@ void Session::suback(const char* filter, bool granted, uint64_t nowMs) {
   }
   if (pendingSubacks_ == 0) {
     backoff_.reset();
+    earlyRetried_ = false;
     enter(State::Online);
   }
 }

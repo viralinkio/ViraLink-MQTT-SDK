@@ -343,21 +343,77 @@ static void test_link_return_skips_backoff() {
   r.s.tick(100100);  // no path: keep waiting
   TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
   r.t.link = true;
-  r.s.tick(100200);  // a path is back: connect now, with a fresh backoff
+  r.s.tick(100200);  // a path is back: connect now
   TEST_ASSERT_EQUAL(State::Connecting, r.s.state());
   TEST_ASSERT_EQUAL(calls + 1, r.t.connectCalls);
-  r.s.closed(100300);
-  TEST_ASSERT_TRUE(r.s.retryAt() <= 100300 + 1200);
 
-  // A link that never went down changes nothing.
+  // The backoff keeps growing, and a flapping link gets one early attempt
+  // per outage, not one per flap.
+  r.s.closed(100300);
+  TEST_ASSERT_TRUE(r.s.retryAt() > 100300 + 10000);
+  r.t.link = false;
   r.s.tick(100400);
+  r.t.link = true;
+  r.s.tick(100500);
   TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
+  TEST_ASSERT_EQUAL(calls + 1, r.t.connectCalls);
+
+  // Online again: the next outage may skip its wait once more.
+  r.s.tick(r.s.retryAt());
+  r.s.connack(0, r.s.retryAt());
+  for (size_t i = 0; i < 2; ++i) r.s.suback(r.router.filter(i), true, r.s.retryAt());
+  TEST_ASSERT_EQUAL(State::Online, r.s.state());
+  r.t.link = false;
+  r.s.closed(400000);
+  r.s.tick(400100);
+  r.t.link = true;
+  r.s.tick(400200);
+  TEST_ASSERT_EQUAL(State::Connecting, r.s.state());
+}
+
+// CONNACK 3 is also ThingsBoard's connection rate limit: a link that comes
+// back does not cut the 30 s the server asked for.
+static void test_link_return_respects_server_unavailable() {
+  Rig r;
+  r.s.start(r.opts, 0);
+  r.s.connack(3, 0);
+  TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
+  int calls = r.t.connectCalls;
+  r.t.link = false;
+  r.s.tick(1000);
+  r.t.link = true;
+  r.s.tick(2000);
+  TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
+  TEST_ASSERT_EQUAL(calls, r.t.connectCalls);
+  r.s.tick(29999);
+  TEST_ASSERT_EQUAL(State::Backoff, r.s.state());
+
+  // After the minimum, a link return may still end the rest of the wait.
+  Rig r2;
+  r2.s.start(r2.opts, 0);
+  for (int i = 0; i < 8; ++i) {  // backoff near its 60 s cap, above the 30 s minimum
+    r2.s.connack(3, r2.s.retryAt());
+    r2.s.tick(r2.s.retryAt());
+  }
+  r2.s.connack(3, 500000);
+  TEST_ASSERT_TRUE(r2.s.retryAt() > 500000 + 30000);
+  r2.t.link = false;
+  r2.s.tick(520000);
+  r2.t.link = true;
+  r2.s.tick(529999);
+  TEST_ASSERT_EQUAL(State::Backoff, r2.s.state());
+  r2.t.link = false;
+  r2.s.tick(530000);
+  r2.t.link = true;
+  r2.s.tick(530001);
+  TEST_ASSERT_EQUAL(State::Connecting, r2.s.state());
 }
 
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_online_only_after_every_suback);
   RUN_TEST(test_link_return_skips_backoff);
+  RUN_TEST(test_link_return_respects_server_unavailable);
   RUN_TEST(test_resubscribes_on_every_reconnect);
   RUN_TEST(test_refused_suback_fails_session);
   RUN_TEST(test_suback_timeout);
