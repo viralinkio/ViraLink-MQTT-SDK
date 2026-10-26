@@ -8,7 +8,7 @@
 if(ESP_PLATFORM)
   # SRC_DIRS is not recursive: list every source directory.
   idf_component_register(
-    SRC_DIRS "src/vl" "src/vl/api" "src/vl/core" "src/vl/pal" "src/vl/platform/esp32" "src/vl/transport"
+    SRC_DIRS "src/vl" "src/vl/api" "src/vl/core" "src/vl/pal" "src/vl/platform/esp32" "src/vl/se" "src/vl/transport"
     INCLUDE_DIRS "src"
     REQUIRES mqtt esp_timer esp_ringbuf
     PRIV_REQUIRES esp_system esp_wifi mbedtls app_update esp_http_client nvs_flash)

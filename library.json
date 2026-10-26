@@ -48,6 +48,16 @@
       "name": "persistence",
       "base": "examples/persistence",
       "files": ["persistence.ino"]
+    },
+    {
+      "name": "arduino_client",
+      "base": "examples/arduino_client",
+      "files": ["arduino_client.ino"]
+    },
+    {
+      "name": "secure_mtls",
+      "base": "examples/secure_mtls",
+      "files": ["secure_mtls.ino"]
     }
   ]
 }

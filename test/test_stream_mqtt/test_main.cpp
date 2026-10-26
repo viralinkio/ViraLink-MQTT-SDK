@@ -21,8 +21,9 @@ namespace {
 
 struct FakeStream : INetStream {
   bool accept = true;
-  bool isSecure = false;
-  bool hasSecureElement = false;
+  bool judge = false;  // answer validate() with verdict instead of the plain-stream default
+  Result verdict = Result::Ok;
+  const ITlsProvider* tls = nullptr;
   bool gone = false;
   bool failWrite = false;
   size_t chunk = 1 << 20;  // most bytes one read returns
@@ -33,10 +34,12 @@ struct FakeStream : INetStream {
   int connects = 0;
   int stops = 0;
 
-  bool connect(const char* h, uint16_t p) override {
+  Result validate(const ITlsProvider* t) const override { return judge ? verdict : INetStream::validate(t); }
+  bool connect(const char* h, uint16_t p, const ITlsProvider* t) override {
     ++connects;
     host = h;
     port = p;
+    tls = t;
     gone = !accept;
     return accept;
   }
@@ -53,8 +56,6 @@ struct FakeStream : INetStream {
     return true;
   }
   void stop() override { ++stops; }
-  bool secure() const override { return isSecure; }
-  bool secureElement() const override { return hasSecureElement; }
 };
 
 struct Events {
@@ -293,20 +294,21 @@ static void test_disconnect_is_quiet() {
   TEST_ASSERT_EQUAL_STRING("", r.events().c_str());
 }
 
-static void test_validate_against_the_stream() {
+static void test_tls_is_the_streams_business() {
   Rig r;
   ConnectOptions o;
   TEST_ASSERT_EQUAL(Result::Ok, r.m.validate(o));
   PemTls pem("CA");
   o.tls = &pem;
   TEST_ASSERT_EQUAL(Result::Rejected, r.m.validate(o));  // plain stream: TLS would be ignored
-  r.s.isSecure = true;
+  r.s.judge = true;
   TEST_ASSERT_EQUAL(Result::Ok, r.m.validate(o));
-  SecureElementTls se("CA", "CERT");
-  o.tls = &se;
+  r.s.verdict = Result::Rejected;
   TEST_ASSERT_EQUAL(Result::Rejected, r.m.validate(o));
-  r.s.hasSecureElement = true;
-  TEST_ASSERT_EQUAL(Result::Ok, r.m.validate(o));
+
+  r.o.tls = &pem;
+  r.m.beginConnect(r.o);
+  TEST_ASSERT_TRUE(r.s.tls == &pem);
 }
 
 int main() {
@@ -321,6 +323,6 @@ int main() {
   RUN_TEST(test_keep_alive_and_timeout);
   RUN_TEST(test_link_failures_close);
   RUN_TEST(test_disconnect_is_quiet);
-  RUN_TEST(test_validate_against_the_stream);
+  RUN_TEST(test_tls_is_the_streams_business);
   return UNITY_END();
 }

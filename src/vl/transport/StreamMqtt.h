@@ -14,17 +14,16 @@ namespace vl {
 class INetStream {
  public:
   virtual ~INetStream() {}
-  // Blocks until connected or failed.
-  virtual bool connect(const char* host, uint16_t port) = 0;
+  // Whether the stream can connect as tls (Config::tls) describes. The default
+  // is a plain stream, which refuses TLS rather than ignore it.
+  virtual Result validate(const ITlsProvider* tls) const;
+  // Blocks until connected or failed. tls is what validate() accepted.
+  virtual bool connect(const char* host, uint16_t port, const ITlsProvider* tls) = 0;
   // Bytes read, 0 if none are waiting, -1 once the connection is gone.
   virtual int read(uint8_t* buf, size_t n) = 0;
   // Writes all n bytes, or returns false.
   virtual bool write(const uint8_t* p, size_t n) = 0;
   virtual void stop() = 0;
-  // The stream encrypts; Config::tls then describes how.
-  virtual bool secure() const { return false; }
-  // Its client key lives in a secure element.
-  virtual bool secureElement() const { return false; }
 };
 
 // IMqttTransport that speaks MQTT 3.1.1 itself over an INetStream: QoS 0/1
@@ -40,8 +39,7 @@ class StreamMqtt : public IMqttTransport {
   StreamMqtt(const StreamMqtt&) = delete;
   StreamMqtt& operator=(const StreamMqtt&) = delete;
 
-  // Config::tls must match what the stream does: a plain stream refuses it,
-  // and a secure element needs a stream that holds one.
+  // The stream's verdict on Config::tls.
   Result validate(const ConnectOptions& o) const override;
   void beginConnect(const ConnectOptions& opts) override;
   void disconnect() override;

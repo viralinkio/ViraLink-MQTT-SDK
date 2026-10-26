@@ -217,6 +217,12 @@
 #define VL_OUTBOX_SCRATCH_SIZE VL_TX_BUFFER_SIZE
 #endif
 
+// TLS streams of the library's own (AteccTlsStream): longest handshake, and
+// longest a write may wait for the link.
+#ifndef VL_TLS_TIMEOUT_MS
+#define VL_TLS_TIMEOUT_MS 15000
+#endif
+
 // Wall-clock floor (2026-01-01T00:00:00Z). Anything earlier is "clock unknown".
 #ifndef VL_TIME_FLOOR_S
 #define VL_TIME_FLOOR_S 1767225600UL

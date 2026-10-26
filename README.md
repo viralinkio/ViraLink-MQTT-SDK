@@ -7,8 +7,9 @@ server. Design: [`docs/design/`](docs/design/).
 **Status: 2.0.0-alpha.1.** Done: session, outbox, telemetry and attributes,
 scheduler, server- and client-side RPC, attribute requests, shared-attribute
 updates and binding, client-attribute reporting, device claiming, the
-gateway API, and the esp-mqtt transport. Still to come: OTA, provisioning,
-health, persistence, and ESP8266/STM32/AVR transports.
+gateway API, OTA, provisioning, health, persistence, TLS with ATECC608 keys,
+and the esp-mqtt and Arduino `Client` transports. Still to come: network
+failover, and the ESP8266/STM32/AVR ports.
 
 ## Install
 
@@ -43,8 +44,8 @@ clock is set are restamped when it syncs, so offline data keeps its real time.
 
 Examples: `examples/basic_telemetry` (Arduino), `examples/rpc_and_attributes` (Arduino),
 `examples/gateway` (Arduino), `examples/ota` (Arduino), `examples/provisioning` (Arduino),
-`examples/persistence` (Arduino),
-`examples/espidf_basic_telemetry` (ESP-IDF).
+`examples/persistence` (Arduino), `examples/arduino_client` (Arduino),
+`examples/secure_mtls` (Arduino), `examples/espidf_basic_telemetry` (ESP-IDF).
 
 ### API modules
 
@@ -276,6 +277,67 @@ client.use(health);
   `health.useV1Keys(true)`) to keep the old names `upTime`, `ESP Free Heap`
   and `Viralink SDK Version`, so existing dashboards keep working. Keys
   1.0.2 did not have keep their `vl_` names.
+
+### Transports and TLS
+
+`vl::EspMqtt` (esp-mqtt) is the ESP32 transport, on Arduino and ESP-IDF
+alike. `vl::BufferedStreamMqtt<>` speaks MQTT 3.1.1 itself over a byte
+stream, so the client also runs over any Arduino network `Client`:
+
+```cpp
+WiFiClient net;                         // or EthernetClient, TinyGsmClient
+vl::ArduinoStream stream(net);
+vl::BufferedStreamMqtt<> mqtt(stream);  // in place of vl::EspMqtt
+```
+
+- QoS 1 with any number of publishes awaiting PUBACK, and keep-alive pings;
+  the link is dropped after 1.5 keep-alive periods of silence. An inbound
+  message larger than the buffer (`VL_TX_BUFFER_SIZE`) is acknowledged,
+  skipped and counted in `mqtt.droppedMessages()`.
+- Arduino clients connect synchronously, so `loop()` blocks while one does.
+- A TLS client you configure yourself (such as SSLClient) works too; leave
+  `Config::tls` null then.
+
+For TLS, `Config::tls` names the CA, and for mTLS the client certificate and
+key. Pin the CA, not the server certificate: ThingsBoard 4.2.2.2 and later
+rotate server certificates without a restart.
+
+```cpp
+vl::PemTls tls(CA_PEM);                      // or PemTls(CA_PEM, CERT_PEM, KEY_PEM) for mTLS
+cfg.port = 8883;
+cfg.tls = &tls;
+```
+
+The client key can live in an ATECC608A/B, which it never leaves:
+
+| Build | How |
+| --- | --- |
+| ESP-IDF 5.x, or Arduino as an IDF component | `EspMqtt` with `CONFIG_ESP_TLS_USE_SECURE_ELEMENT` and the `espressif/esp-cryptoauthlib` component; key slot 0 and the I2C address come from Kconfig |
+| Arduino-ESP32 2.0.x | `vl::AteccTlsStream` over any Arduino `Client` (`examples/secure_mtls`) |
+| Arduino-ESP32 3.x | Not supported: mbedTLS 3 hides the key hook |
+
+```cpp
+WiFiClient tcp;
+vl::WireI2c i2c(Wire);                            // after Wire.begin()
+vl::AteccTlsStream tls(tcp, i2c);
+vl::BufferedStreamMqtt<> mqtt(tls);
+vl::SecureElementTls identity(CA_PEM, CERT_PEM);  // key in slot 0 of the chip at 0x60
+cfg.auth = vl::X509();
+cfg.tls = &identity;
+```
+
+- `begin()` returns `Rejected`, and logs why, when the transport cannot do
+  what `Config::tls` asks: a secure element where the build has no support
+  for one, a slot or address other than Kconfig's, TLS on a plain stream.
+- `AteccTlsStream` refuses a certificate whose public key is not the chip's,
+  and offers TLS 1.2 ECDHE suites only. The key slot must allow signing
+  external messages (Trust&GO slot 0 does). mbedTLS allocates about 40 KB at
+  connect, freed when the connection closes.
+- Certificate dates: `AteccTlsStream` checks them against the client clock,
+  both dates once it is set (SNTP), before that only expiry before
+  `VL_TIME_FLOOR_S`. esp-tls checks dates only on ESP-IDF builds with
+  `CONFIG_MBEDTLS_HAVE_TIME_DATE`, which makes TLS wait for SNTP; Arduino's
+  prebuilt `EspMqtt` does not check them.
 
 ### Claiming
 

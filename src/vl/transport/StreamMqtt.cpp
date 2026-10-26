@@ -12,17 +12,13 @@ StreamMqtt::StreamMqtt(INetStream& stream, uint8_t* buf, size_t cap, IClock* clo
 
 StreamMqtt::~StreamMqtt() { disconnect(); }
 
-Result StreamMqtt::validate(const ConnectOptions& o) const {
-  if (o.tls && !stream_.secure()) {
-    VL_LOGE("stream-mqtt: Config::tls is set but the stream is plain TCP");
-    return Result::Rejected;
-  }
-  if (o.tls && o.tls->secureElement() && !stream_.secureElement()) {
-    VL_LOGE("stream-mqtt: a secure element needs a stream that holds one (AteccTlsClient)");
-    return Result::Rejected;
-  }
-  return Result::Ok;
+Result INetStream::validate(const ITlsProvider* tls) const {
+  if (!tls) return Result::Ok;
+  VL_LOGE("stream: Config::tls is set but the stream is plain TCP");
+  return Result::Rejected;
 }
+
+Result StreamMqtt::validate(const ConnectOptions& o) const { return stream_.validate(o.tls); }
 
 uint16_t StreamMqtt::nextId() {
   if (++lastId_ == 0) lastId_ = 1;
@@ -59,7 +55,7 @@ void StreamMqtt::beginConnect(const ConnectOptions& o) {
   keepAliveMs_ = static_cast<uint32_t>(o.keepAliveS) * 1000u;
   uint8_t pkt[256];
   size_t n = mqtt::connect(pkt, sizeof(pkt), o.clientId, o.username, o.password, o.keepAliveS);
-  if (n == 0 || !stream_.connect(o.host, o.port)) {
+  if (n == 0 || !stream_.connect(o.host, o.port, o.tls)) {
     closedPending_ = true;  // reported from loop(), never from here
     return;
   }

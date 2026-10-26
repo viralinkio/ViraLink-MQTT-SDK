@@ -79,7 +79,7 @@ Result EspMqtt::validate(const ConnectOptions& o) const {
   return Result::Ok;
 #else
   VL_LOGE("esp-mqtt: a secure element needs ESP-IDF with CONFIG_ESP_TLS_USE_SECURE_ELEMENT "
-          "(on Arduino: StreamMqtt with AteccTlsClient)");
+          "(on Arduino-ESP32 2.0.x: StreamMqtt with AteccTlsStream)");
   return Result::Rejected;
 #endif
 }

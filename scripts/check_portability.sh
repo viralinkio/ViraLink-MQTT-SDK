@@ -16,7 +16,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 shopt -s nullglob
-SOURCES=("$ROOT"/src/vl/core/*.cpp "$ROOT"/src/vl/api/*.cpp "$ROOT"/src/vl/transport/*.cpp "$ROOT/src/vl/Client.cpp" "$ROOT/src/vl/Log.cpp")
+SOURCES=("$ROOT"/src/vl/core/*.cpp "$ROOT"/src/vl/api/*.cpp "$ROOT"/src/vl/se/*.cpp "$ROOT"/src/vl/transport/*.cpp "$ROOT/src/vl/Client.cpp" "$ROOT/src/vl/Log.cpp")
 
 compile() {  # name compiler [target flags...]
   local name=$1 cc=$2

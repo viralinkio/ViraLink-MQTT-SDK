@@ -17,6 +17,14 @@
 #include "vl/core/JsonReader.h"
 #include "vl/core/JsonWriter.h"
 #include "vl/pal/FileOutboxStore.h"
+#include "vl/se/Atecc608.h"
+#include "vl/transport/AteccTlsStream.h"
+#include "vl/transport/StreamMqtt.h"
+
+#if defined(ARDUINO)
+#include "vl/se/WireI2c.h"
+#include "vl/transport/ArduinoStream.h"
+#endif
 
 #if VL_PLATFORM_ESP32
 #include "vl/platform/esp32/EspMqtt.h"
