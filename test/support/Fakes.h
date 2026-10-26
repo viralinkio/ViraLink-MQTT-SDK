@@ -9,6 +9,7 @@
 
 #include "vl/pal/Clock.h"
 #include "vl/pal/KeyValueStore.h"
+#include "vl/pal/SystemInfo.h"
 #include "vl/transport/IMqttTransport.h"
 
 namespace vltest {
@@ -159,6 +160,33 @@ class MemoryStore : public vl::IKeyValueStore {
   vl::Result erase(const char* key) override {
     data.erase(key);
     return vl::Result::Ok;
+  }
+};
+
+// Scripted chip vitals; a value is unknown while its has* flag is false.
+class FakeSystemInfo : public vl::ISystemInfo {
+ public:
+  bool hasHeap = true;
+  uint32_t free = 180000;
+  uint32_t min = 150000;
+  const char* reason = "power_on";
+  const char* link = "wifi";
+  bool hasRssi = true;
+  int16_t dBm = -61;
+
+  bool heapFree(uint32_t& bytes) override {
+    bytes = free;
+    return hasHeap;
+  }
+  bool heapMin(uint32_t& bytes) override {
+    bytes = min;
+    return hasHeap;
+  }
+  const char* resetReason() override { return reason; }
+  const char* iface() override { return link; }
+  bool rssi(int16_t& out) override {
+    out = dBm;
+    return hasRssi;
   }
 };
 

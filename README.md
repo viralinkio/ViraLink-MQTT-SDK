@@ -209,6 +209,37 @@ prov.start(client, cfg);           // instead of client.begin(cfg)
   `client.onAuthFailed` to provision again after the device was deleted.
 - On ESP32, enable NVS encryption to keep the credentials encrypted at rest.
 
+### Health
+
+`vl::Health` reports the device's vitals as client attributes:
+
+```cpp
+vl::Health health;                 // every VL_HEALTH_INTERVAL_MS (60 s)
+health.setKeys(vl::kHealthAll & ~vl::kHealthRssi);  // optional: switch keys off
+client.use(health);
+```
+
+| Key | Value |
+| --- | --- |
+| `vl_uptime` | seconds since boot |
+| `vl_heap_free`, `vl_heap_min` | free heap now and its low-water mark, bytes |
+| `vl_reset_reason` | `power_on`, `software`, `panic`, `task_wdt`, `brownout`, `deep_sleep`, ... |
+| `vl_rssi`, `vl_iface` | signal strength (dBm) and name of the active interface |
+| `vl_queue_depth` | records waiting in the outbox |
+| `vl_dropped`, `vl_dead_letter` | data records dropped when the ring was full; poison records discarded |
+| `vl_sdk` | library version |
+
+- Every connection sends all enabled keys; each interval after that sends
+  all but `vl_sdk` and `vl_reset_reason`, which do not change during a boot.
+  `vl::Health health(0)` reports only on connect. Nothing is queued offline.
+- On ESP32, `vl_rssi` and `vl_iface` describe the WiFi station while it is
+  associated. Other targets, or a custom link, supply values through an
+  `vl::ISystemInfo` passed to `health.setSource()`; unknown values are left out.
+- Upgrading from 1.0.2: set `VL_COMPAT_V1_KEYS` to 1 (or call
+  `health.useV1Keys(true)`) to keep the old names `upTime`, `ESP Free Heap`
+  and `Viralink SDK Version`, so existing dashboards keep working. Keys
+  1.0.2 did not have keep their `vl_` names.
+
 ### Claiming
 
 `client.claim("secret", 60000)` lets a user claim the device in ViraLink

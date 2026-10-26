@@ -9,6 +9,7 @@
 #include "vl/Result.h"
 #include "vl/api/Attributes.h"
 #include "vl/api/Gateway.h"
+#include "vl/api/Health.h"
 #include "vl/api/Ota.h"
 #include "vl/api/Provision.h"
 #include "vl/api/Rpc.h"

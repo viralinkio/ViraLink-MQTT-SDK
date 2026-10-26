@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "vl/Config.h"
 #include "vl/core/Codec.h"
 #include "vl/core/JsonWriter.h"
 #include "vl/core/Topics.h"
@@ -246,6 +247,78 @@ static std::string fmt(double v, int digits) {
   return std::string(buf, n);
 }
 
+static HealthSample fullHealth() {
+  HealthSample s;
+  s.keys = kHealthAll;
+  s.uptimeS = 3600;
+  s.heapFree = 181234;
+  s.heapMin = 150112;
+  s.resetReason = "power_on";
+  s.rssi = -61;
+  s.iface = "wifi";
+  s.queueDepth = 3;
+  s.dropped = 1;
+  s.deadLetters = 2;
+  s.sdk = "2.0.0";
+  return s;
+}
+
+static void test_health_payloads() {
+  char buf[VL_HEALTH_SIZE];
+  {
+    JsonWriter w(buf, sizeof(buf));
+    codec::health(w, fullHealth(), false);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"vl_uptime\":3600,\"vl_heap_free\":181234,\"vl_heap_min\":150112,\"vl_reset_reason\":\"power_on\","
+        "\"vl_rssi\":-61,\"vl_iface\":\"wifi\",\"vl_queue_depth\":3,\"vl_dropped\":1,\"vl_dead_letter\":2,"
+        "\"vl_sdk\":\"2.0.0\"}",
+        buf);
+  }
+  {
+    // 1.0.2 names where 1.0.2 had the key; vl_ names elsewhere.
+    JsonWriter w(buf, sizeof(buf));
+    codec::health(w, fullHealth(), true);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"upTime\":3600,\"ESP Free Heap\":181234,\"vl_heap_min\":150112,\"vl_reset_reason\":\"power_on\","
+        "\"vl_rssi\":-61,\"vl_iface\":\"wifi\",\"vl_queue_depth\":3,\"vl_dropped\":1,\"vl_dead_letter\":2,"
+        "\"Viralink SDK Version\":\"2.0.0\"}",
+        buf);
+  }
+  {
+    HealthSample s = fullHealth();
+    s.keys = kHealthUptime | kHealthRssi | kHealthSdk;
+    JsonWriter w(buf, sizeof(buf));
+    codec::health(w, s, false);
+    TEST_ASSERT_EQUAL_STRING("{\"vl_uptime\":3600,\"vl_rssi\":-61,\"vl_sdk\":\"2.0.0\"}", buf);
+  }
+  {
+    // A key with no value (unknown on this platform) is left out even when selected.
+    HealthSample s = fullHealth();
+    s.resetReason = nullptr;
+    s.iface = nullptr;
+    s.sdk = nullptr;
+    s.keys = kHealthResetReason | kHealthIface | kHealthSdk | kHealthDropped;
+    JsonWriter w(buf, sizeof(buf));
+    codec::health(w, s, false);
+    TEST_ASSERT_EQUAL_STRING("{\"vl_dropped\":1}", buf);
+  }
+}
+
+static void test_health_longest_payload_fits() {
+  HealthSample s = fullHealth();
+  s.uptimeS = s.heapFree = s.heapMin = s.queueDepth = s.dropped = s.deadLetters = 4294967295u;
+  s.resetReason = "deep_sleep";
+  s.rssi = -32768;
+  s.iface = "cellular";
+  s.sdk = VL_SDK_VERSION;
+  char buf[VL_HEALTH_SIZE];
+  for (int v1 = 0; v1 < 2; ++v1) {
+    JsonWriter w(buf, sizeof(buf));
+    codec::health(w, s, v1 != 0);
+    TEST_ASSERT_TRUE(w.complete());
+  }
+}
+
 static void test_format_double() {
   TEST_ASSERT_EQUAL_STRING("21.5", fmt(21.5, 9).c_str());
   TEST_ASSERT_EQUAL_STRING("0.100000001", fmt(0.1f, 9).c_str());
@@ -296,6 +369,8 @@ int main() {
   RUN_TEST(test_rpc_payloads);
   RUN_TEST(test_ota_payloads);
   RUN_TEST(test_provision_requests);
+  RUN_TEST(test_health_payloads);
+  RUN_TEST(test_health_longest_payload_fits);
   RUN_TEST(test_format_double);
   RUN_TEST(test_format_double_round_trips_floats);
   return UNITY_END();

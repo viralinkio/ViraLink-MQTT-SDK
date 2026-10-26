@@ -184,6 +184,18 @@
 #define VL_PROVISION_TIMEOUT_MS 30000
 #endif
 
+// Health: report interval, payload buffer, and 1 = the 1.0.2 key names
+// ("upTime", "ESP Free Heap", "Viralink SDK Version") by default.
+#ifndef VL_HEALTH_INTERVAL_MS
+#define VL_HEALTH_INTERVAL_MS 60000
+#endif
+#ifndef VL_HEALTH_SIZE
+#define VL_HEALTH_SIZE (VL_PROFILE_LITE ? 160 : 320)
+#endif
+#ifndef VL_COMPAT_V1_KEYS
+#define VL_COMPAT_V1_KEYS 0
+#endif
+
 // Wall-clock floor (2026-01-01T00:00:00Z). Anything earlier is "clock unknown".
 #ifndef VL_TIME_FLOOR_S
 #define VL_TIME_FLOOR_S 1767225600UL

@@ -34,6 +34,9 @@ int32_t door = 0;
 #if VL_ENABLE_GATEWAY
 vl::Gateway<2> gw;
 #endif
+#if VL_ENABLE_HEALTH
+vl::Health health(30000);
+#endif
 #if VL_ENABLE_PROVISION
 vl::Provisioning prov;  // no store: provisions on every boot
 
@@ -81,6 +84,10 @@ void setup() {
   Serial.begin(115200);
   vl::JsonValue v = vl::JsonValue::parse("{\"a\":1}", 7);
   client.use(rpc, shared, reported);
+#if VL_ENABLE_HEALTH
+  health.setKeys(vl::kHealthAll & ~vl::kHealthRssi);
+  client.use(health);
+#endif
 #if VL_ENABLE_GATEWAY
   client.use(gw);
   gw.device("Meter-1", "meter").telemetry().add("kwh", 1.5f).send();

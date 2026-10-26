@@ -80,6 +80,22 @@ void fwState(JsonWriter& w, const char* state, const char* error) {
   w.endObject();
 }
 
+void health(JsonWriter& w, const HealthSample& s, bool v1Keys) {
+  uint16_t k = s.keys;
+  w.beginObject();
+  if (k & kHealthUptime) w.key(v1Keys ? "upTime" : "vl_uptime").value(static_cast<unsigned long>(s.uptimeS));
+  if (k & kHealthHeapFree) w.key(v1Keys ? "ESP Free Heap" : "vl_heap_free").value(static_cast<unsigned long>(s.heapFree));
+  if (k & kHealthHeapMin) w.key("vl_heap_min").value(static_cast<unsigned long>(s.heapMin));
+  if ((k & kHealthResetReason) && s.resetReason) w.key("vl_reset_reason").value(s.resetReason);
+  if (k & kHealthRssi) w.key("vl_rssi").value(static_cast<int>(s.rssi));
+  if ((k & kHealthIface) && s.iface) w.key("vl_iface").value(s.iface);
+  if (k & kHealthQueueDepth) w.key("vl_queue_depth").value(static_cast<unsigned long>(s.queueDepth));
+  if (k & kHealthDropped) w.key("vl_dropped").value(static_cast<unsigned long>(s.dropped));
+  if (k & kHealthDeadLetter) w.key("vl_dead_letter").value(static_cast<unsigned long>(s.deadLetters));
+  if ((k & kHealthSdk) && s.sdk) w.key(v1Keys ? "Viralink SDK Version" : "vl_sdk").value(s.sdk);
+  w.endObject();
+}
+
 void provisionRequest(JsonWriter& w, const char* deviceName, const char* key, const char* secret,
                       const Credentials& creds, const char* certPem) {
   w.beginObject();
