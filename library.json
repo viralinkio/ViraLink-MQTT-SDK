@@ -1,0 +1,43 @@
+{
+  "name": "ViraLink-Device-Client",
+  "version": "2.0.0-alpha.1",
+  "description": "ThingsBoard-compatible MQTT device and gateway client with an at-least-once offline outbox, for ESP32 (Arduino and ESP-IDF).",
+  "keywords": "thingsboard, viralink, mqtt, iot, telemetry, gateway, ota",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/viralinkio/ViraLink-Device-Client.git"
+  },
+  "license": "Apache-2.0",
+  "frameworks": ["arduino", "espidf"],
+  "platforms": ["espressif32", "native"],
+  "headers": "ViraLink.h",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  },
+  "export": {
+    "exclude": [".pio", ".idea", "docs", "test", "scripts", "cmake-build-*"]
+  },
+  "examples": [
+    {
+      "name": "basic_telemetry",
+      "base": "examples/basic_telemetry",
+      "files": ["basic_telemetry.ino"]
+    },
+    {
+      "name": "rpc_and_attributes",
+      "base": "examples/rpc_and_attributes",
+      "files": ["rpc_and_attributes.ino"]
+    },
+    {
+      "name": "gateway",
+      "base": "examples/gateway",
+      "files": ["gateway.ino"]
+    },
+    {
+      "name": "ota",
+      "base": "examples/ota",
+      "files": ["ota.ino"]
+    }
+  ]
+}
