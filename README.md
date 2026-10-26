@@ -1,4 +1,4 @@
-# ViraLink Device Client v2
+# ViraLink-MQTT-SDK v2
 
 ThingsBoard-compatible MQTT device client for ESP32 with an at-least-once
 offline outbox. Works with ViraLink Console and any ThingsBoard CE 3.6+
@@ -15,7 +15,7 @@ to come: the ESP8266/STM32/AVR ports.
 
 | Build system | How |
 | --- | --- |
-| PlatformIO (Arduino or ESP-IDF framework) | `lib_deps = https://github.com/viralinkio/ViraLink-Device-Client.git` |
+| PlatformIO (Arduino or ESP-IDF framework) | `lib_deps = https://github.com/viralinkio/ViraLink-MQTT-SDK.git` |
 | Arduino IDE | Sketch → Include Library → Add .ZIP Library (needs arduino-esp32 ≥ 2.0) |
 | ESP-IDF (`idf.py`, IDF ≥ 4.4) | Clone into `components/`, or add the path to `EXTRA_COMPONENT_DIRS` |
 
