@@ -21,6 +21,7 @@ Result Router::add(IApiModule& m) {
 }
 
 void Router::remove(IApiModule& m) {
+  if (solo_ == &m) setSolo(nullptr);
   size_t i = 0;
   while (i < count_ && modules_[i] != &m) ++i;
   if (i == count_) return;
@@ -37,21 +38,36 @@ void Router::remove(IApiModule& m) {
   for (i = 0; i < count_; ++i) allKinds_ |= kinds_[i];
 }
 
+void Router::setSolo(const IApiModule* m) {
+  solo_ = nullptr;
+  soloKinds_ = 0;
+  for (size_t i = 0; m && i < count_; ++i) {
+    if (modules_[i] != m) continue;
+    solo_ = m;
+    soloKinds_ = kinds_[i];
+  }
+}
+
 size_t Router::filterCount() const {
   size_t n = 0;
   for (uint8_t k = 1; k < static_cast<uint8_t>(InTopic::Count); ++k) {
-    if (allKinds_ & (1u << k)) ++n;
+    if (activeKinds() & (1u << k)) ++n;
   }
   return n;
 }
 
-const char* Router::filter(size_t i) const {
+InTopic Router::filterKind(size_t i) const {
   for (uint8_t k = 1; k < static_cast<uint8_t>(InTopic::Count); ++k) {
-    if (!(allKinds_ & (1u << k))) continue;
-    if (i == 0) return filterFor(static_cast<InTopic>(k));
+    if (!(activeKinds() & (1u << k))) continue;
+    if (i == 0) return static_cast<InTopic>(k);
     --i;
   }
-  return nullptr;
+  return InTopic::Unknown;
+}
+
+const char* Router::filter(size_t i) const {
+  InTopic k = filterKind(i);
+  return k == InTopic::Unknown ? nullptr : filterFor(k);
 }
 
 bool Router::dispatch(const char* topic, Bytes payload) {
@@ -65,6 +81,7 @@ bool Router::dispatch(const char* topic, Bytes payload) {
   bool all = t.kind == InTopic::AttrUpdate;
   bool consumed = false;
   for (size_t i = 0; i < count_; ++i) {
+    if (solo_ && modules_[i] != solo_) continue;
     if (!(kinds_[i] & kindBit(t.kind)) || !modules_[i]->handle(t, payload)) continue;
     consumed = true;
     if (!all) return true;

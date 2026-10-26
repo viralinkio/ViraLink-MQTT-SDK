@@ -22,10 +22,15 @@ class Router {
   // Cached at add(): the module itself may be gone by the time this is read.
   bool detachesItself(size_t i) const { return selfDetach_[i]; }
 
+  // Restricts subscriptions and routing to m, an attached module (the
+  // provisioning session); null restores every module.
+  void setSolo(const IApiModule* m);
+
   // Subscription filters, in a stable order.
   size_t filterCount() const;
   const char* filter(size_t i) const;
-  bool subscribed(InTopic kind) const { return (allKinds_ & kindBit(kind)) != 0; }
+  InTopic filterKind(size_t i) const;
+  bool subscribed(InTopic kind) const { return (activeKinds() & kindBit(kind)) != 0; }
 
   // Returns true if some module consumed the message. AttrUpdate reaches
   // every subscribed module; other kinds stop at the first that consumes.
@@ -33,6 +38,7 @@ class Router {
 
  private:
   static uint32_t kindBit(InTopic k) { return 1u << static_cast<uint8_t>(k); }
+  uint32_t activeKinds() const { return solo_ ? soloKinds_ : allKinds_; }
 
   class Sink : public TopicSink {
    public:
@@ -45,6 +51,8 @@ class Router {
   bool selfDetach_[VL_MAX_MODULES] = {};
   uint32_t allKinds_ = 0;
   size_t count_ = 0;
+  const IApiModule* solo_ = nullptr;
+  uint32_t soloKinds_ = 0;
 };
 
 }  // namespace vl

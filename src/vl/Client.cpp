@@ -64,6 +64,7 @@ Result Client::attach(IApiModule& m) {
 }
 
 void Client::detach(IApiModule& m) {
+  if (exclusive_ == &m) exclusive_ = nullptr;
   {
     LockGuard g(*lock_);
     pending_.removeOwner(&m);
@@ -96,7 +97,16 @@ Result Client::copyCredentials(const Credentials& auth) {
   return Result::Ok;
 }
 
-Result Client::begin(const Config& cfg) {
+Result Client::begin(const Config& cfg) { return beginSession(cfg, nullptr); }
+
+Result Client::beginExclusive(const Config& cfg, IApiModule& m) {
+  bool attached = false;
+  for (size_t i = 0; i < router_.moduleCount(); ++i) attached |= &router_.module(i) == &m;
+  if (!attached) return Result::NotReady;
+  return beginSession(cfg, &m);
+}
+
+Result Client::beginSession(const Config& cfg, IApiModule* exclusive) {
   if (!cfg.host || !cfg.host[0] || cfg.maxInFlight == 0) return Result::Rejected;
   if (cfg.auth.kind == Credentials::Kind::None) return Result::Rejected;
   if (cfg.auth.kind == Credentials::Kind::X509 && !cfg.tls) return Result::Rejected;
@@ -115,6 +125,8 @@ Result Client::begin(const Config& cfg) {
     LockGuard g(*lock_);
     outbox_.setMaxPayload(limit > kEnvelopeOverhead ? limit - kEnvelopeOverhead : 0);
   }
+  exclusive_ = exclusive;
+  router_.setSolo(exclusive);
   bucket_.configure(cfg.ratePerSec, cfg.rateBurst);
   session_.setTiming(cfg.timing);
   session_.seed(platformRandom());
@@ -137,6 +149,8 @@ Result Client::setCredentials(const Credentials& auth) {
   if (!begun_) return Result::NotReady;
   Result r = copyCredentials(auth);
   if (r != Result::Ok) return r;
+  exclusive_ = nullptr;
+  router_.setSolo(nullptr);
   ConnectOptions o;
   o.host = host_;
   o.port = cfg_.port;
@@ -178,7 +192,7 @@ void Client::loop() {
   uint64_t now = clock_->uptimeMs();
   session_.tick(now);
   syncClock(now);
-  if (session_.online()) drain(now);
+  if (online()) drain(now);
 
   Correlator::Callback cb;
   void* ctx;
@@ -367,6 +381,18 @@ bool Client::cancelPending(uint32_t id) {
   return pending_.take(id, cb, ctx);
 }
 
+Result Client::publishNow(OutTopic topic, uint32_t arg, PayloadFn fn, void* ctx) {
+  if (!exclusive_ || !session_.online()) return Result::NotReady;
+  // The drain, the only other user of these buffers, is off in this session.
+  JsonWriter w(txBuf_, sizeof(txBuf_));
+  fn(w, ctx);
+  if (w.overflowed()) return Result::TooLarge;
+  if (formatTopic(topic, arg, 0, topicBuf_, sizeof(topicBuf_)) == 0) return Result::Rejected;
+  uint16_t packetId = 0;
+  bool sent = transport_.publish(topicBuf_, reinterpret_cast<const uint8_t*>(txBuf_), w.size(), 1, &packetId);
+  return sent ? Result::Ok : Result::NotReady;
+}
+
 Stats Client::stats() {
   LockGuard g(*lock_);
   Stats s;
@@ -384,7 +410,11 @@ Stats Client::stats() {
 void Client::onSessionState(State from, State to) {
   (void)from;
   if (to == State::Online) {
-    for (size_t i = 0; i < router_.moduleCount(); ++i) router_.module(i).onOnline();
+    if (exclusive_) {
+      exclusive_->onOnline();
+    } else {
+      for (size_t i = 0; i < router_.moduleCount(); ++i) router_.module(i).onOnline();
+    }
   }
   if (stateCb_) stateCb_(to, stateCtx_);
 }

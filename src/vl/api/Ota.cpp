@@ -279,6 +279,14 @@ void Ota::startDownload() {
     return;
   }
 #endif
+  // Chunks share the MQTT session with their checksum, so any algorithm only
+  // has to catch corruption there. A URL image arrives on another connection
+  // (maybe plain HTTP or redirected), where only a cryptographic hash stops a
+  // forged image.
+  if (url && verify_ && algo_ != HashAlgo::Sha256 && algo_ != HashAlgo::Sha384 && algo_ != HashAlgo::Sha512) {
+    fail("fw_url needs a SHA-2 checksum");
+    return;
+  }
   if (!url && target_.size == 0) {
     fail("no fw_size");
     return;

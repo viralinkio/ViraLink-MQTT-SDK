@@ -108,7 +108,10 @@ void Session::connack(uint8_t rc, uint64_t nowMs) {
     case 0: {
       size_t n = router_.filterCount();
       if (n > 32) n = 32;
-      pendingSubacks_ = n == 32 ? 0xFFFFFFFFu : (1u << n) - 1u;
+      pendingSubacks_ = 0;
+      for (size_t i = 0; i < n; ++i) {
+        if (expectsSuback(router_.filterKind(i))) pendingSubacks_ |= 1u << i;
+      }
       deadline_ = nowMs + timing_.subscribeTimeoutMs;
       enter(State::Subscribing);
       for (size_t i = 0; i < n; ++i) transport_.subscribe(router_.filter(i), 1);

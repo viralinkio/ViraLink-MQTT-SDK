@@ -47,11 +47,16 @@ EspMqtt::~EspMqtt() {
 }
 
 bool EspMqtt::allocate() {
-  if (ring_) return true;
-  stage_ = static_cast<uint8_t*>(malloc(bufferSize_));
-  ring_ = xRingbufferCreate(queueBytes_, RINGBUF_TYPE_NOSPLIT);
+  if (ring_ && stage_) return true;
+  if (!stage_) stage_ = static_cast<uint8_t*>(malloc(bufferSize_));
+  if (!ring_) ring_ = xRingbufferCreate(queueBytes_, RINGBUF_TYPE_NOSPLIT);
   if (!stage_ || !ring_) {
+    // All or nothing: the event path relies on both buffers existing.
     VL_LOGE("esp-mqtt: out of memory");
+    if (ring_) vRingbufferDelete(static_cast<RingbufHandle_t>(ring_));
+    free(stage_);
+    ring_ = nullptr;
+    stage_ = nullptr;
     return false;
   }
   return true;
@@ -237,7 +242,7 @@ void EspMqtt::handleEvent(int32_t eventId, void* eventData) {
           VL_LOGW("esp-mqtt: incoming message of %u bytes exceeds the buffer", static_cast<unsigned>(stageTotal_));
         }
       }
-      if (stageDrop_) break;
+      if (stageDrop_ || !stage_) break;
       size_t off = static_cast<size_t>(e->current_data_offset);
       size_t n = static_cast<size_t>(e->data_len);
       if (off + n > bufferSize_) break;

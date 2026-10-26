@@ -206,6 +206,40 @@ static void test_ota_payloads() {
   }
 }
 
+static void test_provision_requests() {
+  char buf[256];
+  {
+    JsonWriter w(buf, sizeof(buf));
+    codec::provisionRequest(w, "Meter-7", "KEY", "SECRET", Credentials(), nullptr);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"deviceName\":\"Meter-7\",\"provisionDeviceKey\":\"KEY\",\"provisionDeviceSecret\":\"SECRET\"}", buf);
+  }
+  {
+    JsonWriter w(buf, sizeof(buf));
+    codec::provisionRequest(w, nullptr, "KEY", "SECRET", AccessToken("tok"), nullptr);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"provisionDeviceKey\":\"KEY\",\"provisionDeviceSecret\":\"SECRET\",\"credentialsType\":\"ACCESS_TOKEN\","
+        "\"token\":\"tok\"}",
+        buf);
+  }
+  {
+    JsonWriter w(buf, sizeof(buf));
+    codec::provisionRequest(w, "M", "K", "S", MqttBasic("cid", "user", "pass"), nullptr);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"deviceName\":\"M\",\"provisionDeviceKey\":\"K\",\"provisionDeviceSecret\":\"S\",\"credentialsType\":"
+        "\"MQTT_BASIC\",\"username\":\"user\",\"password\":\"pass\",\"clientId\":\"cid\"}",
+        buf);
+  }
+  {
+    JsonWriter w(buf, sizeof(buf));
+    codec::provisionRequest(w, "M", "K", "S", X509(), "-----BEGIN CERTIFICATE-----\nMIIB\n");
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"deviceName\":\"M\",\"provisionDeviceKey\":\"K\",\"provisionDeviceSecret\":\"S\",\"credentialsType\":"
+        "\"X509_CERTIFICATE\",\"hash\":\"-----BEGIN CERTIFICATE-----\\nMIIB\\n\"}",
+        buf);
+  }
+}
+
 static std::string fmt(double v, int digits) {
   char buf[32];
   size_t n = json::formatDouble(v, digits, buf);
@@ -261,6 +295,7 @@ int main() {
   RUN_TEST(test_payload_encoders);
   RUN_TEST(test_rpc_payloads);
   RUN_TEST(test_ota_payloads);
+  RUN_TEST(test_provision_requests);
   RUN_TEST(test_format_double);
   RUN_TEST(test_format_double_round_trips_floats);
   return UNITY_END();

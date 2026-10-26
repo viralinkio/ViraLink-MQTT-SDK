@@ -266,6 +266,58 @@ static void test_attribute_updates_reach_every_subscriber() {
   TEST_ASSERT_EQUAL(1, b.seen);
 }
 
+namespace {
+class ProvisionModule : public IApiModule {
+ public:
+  int seen = 0;
+  void topics(TopicSink& s) override { s.add(InTopic::ProvisionResponse); }
+  bool handle(const Topic&, Bytes) override {
+    ++seen;
+    return true;
+  }
+};
+}  // namespace
+
+// ThingsBoard 3.6-3.8 never acknowledge /provision/response.
+static void test_provision_response_needs_no_suback() {
+  FakeTransport t;
+  Router router;
+  ProvisionModule m;
+  router.add(m);
+  Session s(t, router);
+  ConnectOptions o;
+  o.host = "broker";
+  s.start(o, 0);
+  s.connack(0, 0);
+  TEST_ASSERT_EQUAL_UINT(1, t.subscribed.size());
+  TEST_ASSERT_EQUAL_STRING("/provision/response", t.subscribed[0].c_str());
+  TEST_ASSERT_EQUAL(State::Online, s.state());
+}
+
+// The provisioning session subscribes and routes for its module only.
+static void test_solo_router() {
+  Router router;
+  Counter a;
+  ProvisionModule p;
+  router.add(a);
+  router.add(p);
+  TEST_ASSERT_EQUAL_UINT(3, router.filterCount());
+  router.setSolo(&p);
+  TEST_ASSERT_EQUAL_UINT(1, router.filterCount());
+  TEST_ASSERT_EQUAL_STRING("/provision/response", router.filter(0));
+  TEST_ASSERT_TRUE(router.filterKind(0) == InTopic::ProvisionResponse);
+  TEST_ASSERT_NULL(router.filter(1));
+  TEST_ASSERT_FALSE(router.subscribed(InTopic::AttrUpdate));
+  TEST_ASSERT_FALSE(router.dispatch("v1/devices/me/attributes", Bytes()));
+  TEST_ASSERT_TRUE(router.dispatch("/provision/response", Bytes()));
+  TEST_ASSERT_EQUAL(0, a.seen);
+  TEST_ASSERT_EQUAL(1, p.seen);
+  router.remove(p);  // removing the solo module restores everyone
+  TEST_ASSERT_EQUAL_UINT(2, router.filterCount());
+  TEST_ASSERT_TRUE(router.dispatch("v1/devices/me/attributes", Bytes()));
+  TEST_ASSERT_EQUAL(1, a.seen);
+}
+
 static void test_stop() {
   Rig r;
   r.startAndConnect(0);
@@ -293,6 +345,8 @@ int main() {
   RUN_TEST(test_late_events_are_ignored);
   RUN_TEST(test_no_modules_goes_online_on_connack);
   RUN_TEST(test_attribute_updates_reach_every_subscriber);
+  RUN_TEST(test_provision_response_needs_no_suback);
+  RUN_TEST(test_solo_router);
   RUN_TEST(test_stop);
   return UNITY_END();
 }

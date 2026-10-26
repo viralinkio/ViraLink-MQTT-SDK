@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "vl/Config.h"
+#include "vl/Credentials.h"
 #include "vl/IApiModule.h"
 #include "vl/Payload.h"
 #include "vl/Result.h"
@@ -18,37 +19,6 @@
 #include "vl/transport/IMqttTransport.h"
 
 namespace vl {
-
-struct Credentials {
-  enum class Kind : uint8_t { None, AccessToken, MqttBasic, X509 };
-  Kind kind = Kind::None;
-  const char* clientId = nullptr;
-  const char* username = nullptr;
-  const char* password = nullptr;
-};
-
-inline Credentials AccessToken(const char* token) {
-  Credentials c;
-  c.kind = Credentials::Kind::AccessToken;
-  c.username = token;
-  return c;
-}
-
-inline Credentials MqttBasic(const char* clientId, const char* username, const char* password) {
-  Credentials c;
-  c.kind = Credentials::Kind::MqttBasic;
-  c.clientId = clientId;
-  c.username = username;
-  c.password = password;
-  return c;
-}
-
-// Device identified by its TLS client certificate (set Config::tls).
-inline Credentials X509() {
-  Credentials c;
-  c.kind = Credentials::Kind::X509;
-  return c;
-}
 
 // Plain struct (C++11). Strings are copied by begin().
 struct Config {
@@ -127,7 +97,8 @@ class Client : private SessionListener {
 #endif
 
   State state() const { return session_.state(); }
-  bool online() const { return session_.online(); }
+  // False during a provisioning session, which only its module may use.
+  bool online() const { return session_.online() && !exclusive_; }
 
   // Periodic task on the client task, timed on uptime. Thread-safe.
   Result every(uint32_t intervalMs, Scheduler::Task fn, void* ctx);
@@ -161,6 +132,16 @@ class Client : private SessionListener {
   // Guards the outbox and module tables: hold it only around table access,
   // never across network I/O or a callback.
   ILock& lock() { return *lock_; }
+  // Exclusive session (vl::Provisioning): like begin(), but only m's topics
+  // are subscribed, only m sees Online, online() stays false and nothing
+  // leaves the outbox. begin() or setCredentials() returns to the normal
+  // session. m must be attached; NotReady otherwise.
+  Result beginExclusive(const Config& cfg, IApiModule& m);
+  typedef void (*PayloadFn)(JsonWriter& w, void* ctx);
+  // Exclusive session only, on the client task: fn writes the payload into the
+  // transmit buffer and it is published at once, bypassing the outbox.
+  // NotReady when not connected, TooLarge if it did not fit.
+  Result publishNow(OutTopic topic, uint32_t arg, PayloadFn fn, void* ctx);
   void setDeviceNames(DeviceNameFn fn, void* ctx) {
     deviceName_ = fn;
     deviceNameCtx_ = ctx;
@@ -188,6 +169,7 @@ class Client : private SessionListener {
   static void thunkMessage(const char* topic, const uint8_t* p, size_t n, void* ctx);
   static void thunkClosed(void* ctx);
 
+  Result beginSession(const Config& cfg, IApiModule* exclusive);
   void drain(uint64_t nowMs);
   void syncClock(uint64_t nowMs);
   Result copyCredentials(const Credentials& auth);
@@ -213,11 +195,12 @@ class Client : private SessionListener {
   void* authCtx_ = nullptr;
   DeviceNameFn deviceName_ = nullptr;
   void* deviceNameCtx_ = nullptr;
+  IApiModule* exclusive_ = nullptr;
 
   char host_[64] = {};
   char clientId_[24] = {};
-  char username_[96] = {};
-  char password_[64] = {};
+  char username_[VL_USERNAME_SIZE] = {};
+  char password_[VL_PASSWORD_SIZE] = {};
   char topicBuf_[96] = {};
   char txBuf_[VL_TX_BUFFER_SIZE];
 

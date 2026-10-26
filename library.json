@@ -38,6 +38,11 @@
       "name": "ota",
       "base": "examples/ota",
       "files": ["ota.ino"]
+    },
+    {
+      "name": "provisioning",
+      "base": "examples/provisioning",
+      "files": ["provisioning.ino"]
     }
   ]
 }

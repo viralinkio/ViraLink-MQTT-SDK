@@ -34,6 +34,14 @@ int32_t door = 0;
 #if VL_ENABLE_GATEWAY
 vl::Gateway<2> gw;
 #endif
+#if VL_ENABLE_PROVISION
+vl::Provisioning prov;  // no store: provisions on every boot
+
+static void onProvisioned(vl::Result r, const char* error, void*) {
+  Serial.println(vl::toString(r));
+  if (error) Serial.println(error);
+}
+#endif
 #if VL_ENABLE_OTA
 vl::Ota ota;
 
@@ -95,7 +103,14 @@ void setup() {
   vl::Config cfg;
   cfg.host = "example.org";
   cfg.auth = vl::AccessToken("TOKEN");
+#if VL_ENABLE_PROVISION
+  prov.setDevice("portability", "KEY", "SECRET");
+  prov.setCredentials(vl::MqttBasic("cid", "user", "pass"));
+  prov.onDone(onProvisioned, nullptr);
+  prov.start(client, cfg);
+#else
   client.begin(cfg);
+#endif
   Serial.println(static_cast<long>(v["a"].asInt()));
 }
 

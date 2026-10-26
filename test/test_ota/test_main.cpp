@@ -586,14 +586,34 @@ static void test_url_download_unknown_size() {
   std::string img = makeImage(2500);
   r.http.body = img;
   r.http.sendLength = false;
-  std::string sum = digestOf("CRC32", img);
-  r.assign(r.online(), "{\"fw_title\":\"ViraGate\",\"fw_version\":\"2.0.0\",\"fw_checksum_algorithm\":\"CRC32\","
+  std::string sum = digestOf("SHA256", img);
+  r.assign(r.online(), "{\"fw_title\":\"ViraGate\",\"fw_version\":\"2.0.0\",\"fw_checksum_algorithm\":\"SHA256\","
                        "\"fw_checksum\":\"" + sum + "\",\"fw_url\":\"https://files.example.com/fw.bin\"}");
   r.runUntil("UPDATING");
   TEST_ASSERT_EQUAL_STRING("UPDATING", states.back().c_str());
   TEST_ASSERT_EQUAL_UINT(0, r.fw.beginSize);
   TEST_ASSERT_TRUE(r.fw.image == img);
   TEST_ASSERT_EQUAL_UINT(0, progressTotal);
+}
+
+// The image of a URL package arrives outside the MQTT session that carried its
+// checksum, so only a cryptographic hash protects it.
+static void test_url_download_needs_sha2() {
+  const char* weak[] = {"MD5", "CRC32", "MURMUR3_32", "MURMUR3_128"};
+  std::string img = makeImage(700);
+  for (size_t i = 0; i < sizeof(weak) / sizeof(weak[0]); ++i) {
+    OtaRig r;
+    r.http.body = img;
+    r.assign(r.online(), package("2.0.0", img, weak[i], nullptr, "https://files.example.com/fw.bin"));
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("FAILED:fw_url needs a SHA-2 checksum", states.back().c_str(), weak[i]);
+    TEST_ASSERT_EQUAL(0, r.fw.begins);
+    TEST_ASSERT_EQUAL_UINT(0, r.http.opens.size());
+  }
+  OtaRig r;
+  r.http.body = img;
+  r.assign(r.online(), package("2.0.0", img, "SHA384", nullptr, "https://files.example.com/fw.bin"));
+  r.runUntil("UPDATING");
+  TEST_ASSERT_EQUAL_STRING("UPDATING", states.back().c_str());
 }
 
 static void test_url_download_gives_up() {
@@ -651,6 +671,7 @@ int main() {
   RUN_TEST(test_url_download_resumes_with_range);
   RUN_TEST(test_url_download_restarts_without_range_support);
   RUN_TEST(test_url_download_unknown_size);
+  RUN_TEST(test_url_download_needs_sha2);
   RUN_TEST(test_url_download_gives_up);
   RUN_TEST(test_shares_attribute_topics_with_shared_attributes);
   return UNITY_END();

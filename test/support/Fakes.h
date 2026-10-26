@@ -1,10 +1,14 @@
 // Test doubles: a manual clock and a scripted MQTT transport.
 #pragma once
 
+#include <string.h>
+
+#include <map>
 #include <string>
 #include <vector>
 
 #include "vl/pal/Clock.h"
+#include "vl/pal/KeyValueStore.h"
 #include "vl/transport/IMqttTransport.h"
 
 namespace vltest {
@@ -132,6 +136,30 @@ class FakeTransport : public vl::IMqttTransport {
   void* messageCtx = nullptr;
   ClosedCb closedCb = nullptr;
   void* closedCtx = nullptr;
+};
+
+class MemoryStore : public vl::IKeyValueStore {
+ public:
+  std::map<std::string, std::string> data;
+  bool failSet = false;
+
+  vl::Result get(const char* key, void* buf, size_t cap, size_t& len) override {
+    std::map<std::string, std::string>::const_iterator it = data.find(key);
+    if (it == data.end()) return vl::Result::Rejected;
+    if (it->second.size() > cap) return vl::Result::TooLarge;
+    memcpy(buf, it->second.data(), it->second.size());
+    len = it->second.size();
+    return vl::Result::Ok;
+  }
+  vl::Result set(const char* key, const void* value, size_t len) override {
+    if (failSet) return vl::Result::Rejected;
+    data[key].assign(static_cast<const char*>(value), len);
+    return vl::Result::Ok;
+  }
+  vl::Result erase(const char* key) override {
+    data.erase(key);
+    return vl::Result::Ok;
+  }
 };
 
 }  // namespace vltest

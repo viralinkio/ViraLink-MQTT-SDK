@@ -56,4 +56,7 @@ Topic parseTopic(const char* topic);
 // Subscription filter for an incoming topic kind.
 const char* filterFor(InTopic kind);
 
+// False for /provision/response: ThingsBoard 3.6-3.8 never acknowledge it.
+bool expectsSuback(InTopic kind);
+
 }  // namespace vl

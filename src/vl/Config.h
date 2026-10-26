@@ -49,6 +49,14 @@
 #endif
 #endif
 
+// Longest MQTT username (access token) and password + 1.
+#ifndef VL_USERNAME_SIZE
+#define VL_USERNAME_SIZE 96
+#endif
+#ifndef VL_PASSWORD_SIZE
+#define VL_PASSWORD_SIZE 64
+#endif
+
 // Default capacity of a PayloadBuilder returned by telemetry()/attributes().
 #ifndef VL_BUILDER_SIZE
 #define VL_BUILDER_SIZE (VL_PROFILE_LITE ? 96 : 256)
@@ -162,6 +170,18 @@
 // 1 = install packages that have no checksum. Off: an unverified image is refused.
 #ifndef VL_OTA_ALLOW_UNVERIFIED
 #define VL_OTA_ALLOW_UNVERIFIED 0
+#endif
+
+// Provisioning: device name, provision key and secret (+ 1 each), and how
+// long the provisioning session may take before it gives up.
+#ifndef VL_PROVISION_NAME_SIZE
+#define VL_PROVISION_NAME_SIZE 64
+#endif
+#ifndef VL_PROVISION_KEY_SIZE
+#define VL_PROVISION_KEY_SIZE 64
+#endif
+#ifndef VL_PROVISION_TIMEOUT_MS
+#define VL_PROVISION_TIMEOUT_MS 30000
 #endif
 
 // Wall-clock floor (2026-01-01T00:00:00Z). Anything earlier is "clock unknown".

@@ -42,7 +42,8 @@ Telemetry is timestamped at enqueue time. Records produced before the wall
 clock is set are restamped when it syncs, so offline data keeps its real time.
 
 Examples: `examples/basic_telemetry` (Arduino), `examples/rpc_and_attributes` (Arduino),
-`examples/gateway` (Arduino), `examples/ota` (Arduino), `examples/espidf_basic_telemetry` (ESP-IDF).
+`examples/gateway` (Arduino), `examples/ota` (Arduino), `examples/provisioning` (Arduino),
+`examples/espidf_basic_telemetry` (ESP-IDF).
 
 ### API modules
 
@@ -158,6 +159,11 @@ client.use(ota);
 - Every checksum algorithm ThingsBoard offers is checked while the image is
   written: MD5, SHA256, SHA384, SHA512, CRC32, MURMUR3_32 and MURMUR3_128.
   A package without a checksum is refused unless `VL_OTA_ALLOW_UNVERIFIED` is 1.
+  A URL package must use SHA256, SHA384 or SHA512: its image arrives outside
+  the MQTT session, where CRC32, Murmur3 or MD5 would not stop a forged image.
+  To also reject images the server itself did not build, enable signed app
+  images (`CONFIG_SECURE_SIGNED_APPS_*`) on ESP32: `esp_ota_end` then checks
+  the signature.
 - `fw_state` goes through DOWNLOADING, DOWNLOADED, VERIFIED and UPDATING;
   the device then restarts into the new image, which reports UPDATED. A
   failure reports FAILED with `fw_error`. A failed package is not tried
@@ -172,6 +178,36 @@ client.use(ota);
   packages) passed to `ota.setWriter()` / `ota.setHttp()`.
 - The download blocks `loop()` for at most one chunk write, or one HTTP read
   of `VL_OTA_HTTP_BLOCK` bytes (up to `VL_OTA_HTTP_TIMEOUT_MS` on a stalled link).
+
+### Provisioning
+
+A device can create itself on the server with a device profile's provision
+key and secret, then keep the credentials it gets back:
+
+```cpp
+vl::NvsStore store;                // ESP32 NVS; any vl::IKeyValueStore works
+vl::Provisioning prov(&store);
+
+prov.setDevice("Meter-7", "PROVISION_KEY", "PROVISION_SECRET");  // name null: the server picks
+prov.onDone([](vl::Result r, const char* error, void*) { /* Ok, or Rejected with the server's message */ }, nullptr);
+prov.start(client, cfg);           // instead of client.begin(cfg)
+```
+
+- With saved credentials `start()` begins the normal session at once.
+  Otherwise it runs a short provisioning session first: username
+  `provision`, only `/provision/response` subscribed (without waiting for a
+  SUBACK, which ThingsBoard 3.6-3.8 never send), one request, and on success
+  the credentials are saved and the normal session starts with them. Other
+  modules and queued telemetry wait for that session.
+- By default the server generates an access token. The device can bring its
+  own with `prov.setCredentials(vl::AccessToken(token))`,
+  `vl::MqttBasic(clientId, username, password)`, or `vl::X509()` plus
+  `prov.setCertificate(pem)` and a `Config::tls` that presents that certificate.
+- A refusal (for example a wrong key) or no answer within
+  `VL_PROVISION_TIMEOUT_MS` (30 s) stops the client and reports the error.
+- `prov.forget()` erases the saved credentials; call it from
+  `client.onAuthFailed` to provision again after the device was deleted.
+- On ESP32, enable NVS encryption to keep the credentials encrypted at rest.
 
 ### Claiming
 

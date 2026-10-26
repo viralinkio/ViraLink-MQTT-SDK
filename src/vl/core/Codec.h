@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vl/Credentials.h"
 #include "vl/core/JsonWriter.h"
 #include "vl/core/Outbox.h"
 
@@ -38,6 +39,14 @@ void rpcRequest(JsonWriter& w, const char* method, const char* paramsJson, size_
 void fwInfo(JsonWriter& w, const char* title, const char* version);
 // {"fw_state":…}, plus "fw_error" when error is not null.
 void fwState(JsonWriter& w, const char* state, const char* error);
+
+// {"deviceName":…,"provisionDeviceKey":…,"provisionDeviceSecret":…} plus the
+// credentials the device chose: "credentialsType" with "token" (AccessToken),
+// "username"/"password"/"clientId" (MqttBasic) or "hash" = certPem (X509).
+// A null deviceName or credential field is omitted; Kind::None lets the
+// server generate an access token.
+void provisionRequest(JsonWriter& w, const char* deviceName, const char* key, const char* secret,
+                      const Credentials& creds, const char* certPem);
 
 // Gateway API
 void gwConnect(JsonWriter& w, const char* device, const char* type);  // type may be null

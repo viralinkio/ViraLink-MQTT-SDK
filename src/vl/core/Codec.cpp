@@ -80,6 +80,30 @@ void fwState(JsonWriter& w, const char* state, const char* error) {
   w.endObject();
 }
 
+void provisionRequest(JsonWriter& w, const char* deviceName, const char* key, const char* secret,
+                      const Credentials& creds, const char* certPem) {
+  w.beginObject();
+  if (deviceName) w.key("deviceName").value(deviceName);
+  w.key("provisionDeviceKey").value(key).key("provisionDeviceSecret").value(secret);
+  switch (creds.kind) {
+    case Credentials::Kind::AccessToken:
+      w.key("credentialsType").value("ACCESS_TOKEN").key("token").value(creds.username);
+      break;
+    case Credentials::Kind::MqttBasic:
+      w.key("credentialsType").value("MQTT_BASIC");
+      if (creds.username) w.key("username").value(creds.username);
+      if (creds.password) w.key("password").value(creds.password);
+      if (creds.clientId) w.key("clientId").value(creds.clientId);
+      break;
+    case Credentials::Kind::X509:
+      w.key("credentialsType").value("X509_CERTIFICATE").key("hash").value(certPem);
+      break;
+    case Credentials::Kind::None:
+      break;
+  }
+  w.endObject();
+}
+
 void gwConnect(JsonWriter& w, const char* device, const char* type) {
   w.beginObject().key("device").value(device);
   if (type) w.key("type").value(type);

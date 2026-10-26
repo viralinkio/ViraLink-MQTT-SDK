@@ -132,4 +132,6 @@ const char* filterFor(InTopic kind) {
   return kFilters[static_cast<size_t>(kind)];
 }
 
+bool expectsSuback(InTopic kind) { return kind != InTopic::ProvisionResponse; }
+
 }  // namespace vl

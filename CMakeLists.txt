@@ -11,7 +11,7 @@ if(ESP_PLATFORM)
     SRC_DIRS "src/vl" "src/vl/api" "src/vl/core" "src/vl/pal" "src/vl/platform/esp32"
     INCLUDE_DIRS "src"
     REQUIRES mqtt esp_timer esp_ringbuf
-    PRIV_REQUIRES esp_system mbedtls app_update esp_http_client)
+    PRIV_REQUIRES esp_system mbedtls app_update esp_http_client nvs_flash)
   return()
 endif()
 
