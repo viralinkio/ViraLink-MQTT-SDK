@@ -1,23 +1,39 @@
 #!/usr/bin/env bash
 # Builds every example against the library in this checkout:
-#   - Arduino sketches with PlatformIO (framework = arduino)
+#   - Arduino sketches with PlatformIO (framework = arduino), on each board
+#     the sketch lists in its "// Boards:" line (esp32dev when it has none)
 #   - the ESP-IDF example with PlatformIO (framework = espidf)
 #   - the ESP-IDF example with idf.py, if an ESP-IDF environment is active
+# BOARDS="nodemcuv2" limits the Arduino builds to those boards.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BOARDS="${BOARDS:-esp32dev}"
-# Platform per framework; override to test other arduino-esp32 / ESP-IDF releases.
+BOARDS="${BOARDS:-}"
+IDF_BOARDS="${IDF_BOARDS:-esp32dev}"
+# Platform per framework; override to test other core / ESP-IDF releases.
 ARDUINO_PLATFORM="${ARDUINO_PLATFORM:-espressif32}"
+ESP8266_PLATFORM="${ESP8266_PLATFORM:-espressif8266}"
 IDF_PLATFORM="${IDF_PLATFORM:-espressif32@6.6.0}"  # ESP-IDF 5.2
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-for board in $BOARDS; do
-  for ino in "$ROOT"/examples/*/*.ino; do
-    echo "== arduino $board $(basename "$ino")"
-    pio ci "$ino" --lib "$ROOT" --board "$board" -O "platform=$ARDUINO_PLATFORM" -O "framework=arduino" -O "build_flags=-Wall -Werror"
-  done
+platform_for() {
+  case "$1" in
+    nodemcu* | d1_mini* | esp01* | esp12e | esp8285 | huzzah) echo "$ESP8266_PLATFORM" ;;
+    *) echo "$ARDUINO_PLATFORM" ;;
+  esac
+}
 
+for ino in "$ROOT"/examples/*/*.ino; do
+  targets="$(sed -n 's#^// Boards: ##p' "$ino" | head -n 1)"
+  for board in ${targets:-esp32dev}; do
+    if [ -n "$BOARDS" ] && [[ " $BOARDS " != *" $board "* ]]; then continue; fi
+    echo "== arduino $board $(basename "$ino")"
+    pio ci "$ino" --lib "$ROOT" --board "$board" -O "platform=$(platform_for "$board")" -O "framework=arduino" \
+      -O "build_flags=-Wall -Werror"
+  done
+done
+
+for board in $IDF_BOARDS; do
   echo "== espidf (pio) $board espidf_basic_telemetry"
   proj="$WORK/espidf-$board"
   mkdir -p "$proj/src"

@@ -20,8 +20,13 @@ class FakeClock : public vl::IClock {
   uint64_t now = 1000;
   bool haveUtc = false;
   uint64_t utcAtZero = 0;  // utc = utcAtZero + now
+  uint64_t step = 0;       // added after every uptimeMs(), for code that polls
 
-  uint64_t uptimeMs() override { return now; }
+  uint64_t uptimeMs() override {
+    uint64_t t = now;
+    now += step;
+    return t;
+  }
   bool utcMs(uint64_t& out) override {
     if (!haveUtc) return false;
     out = utcAtZero + now;

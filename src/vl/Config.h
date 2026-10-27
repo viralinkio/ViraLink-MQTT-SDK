@@ -11,6 +11,12 @@
 #define VL_PLATFORM_ESP32 0
 #endif
 
+#if defined(ESP8266)
+#define VL_PLATFORM_ESP8266 1
+#else
+#define VL_PLATFORM_ESP8266 0
+#endif
+
 #if defined(__AVR__)
 #define VL_PROFILE_LITE 1
 #else

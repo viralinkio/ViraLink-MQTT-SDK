@@ -6,6 +6,9 @@
 #include <sys/time.h>
 
 #include "esp_timer.h"
+#elif VL_PLATFORM_ESP8266
+#include <Arduino.h>
+#include <sys/time.h>
 #elif defined(ARDUINO)
 #include <Arduino.h>
 #else
@@ -16,19 +19,33 @@ namespace vl {
 
 namespace {
 
+#if VL_PLATFORM_ESP32 || VL_PLATFORM_ESP8266
+// The system time that SNTP (configTime()) sets.
+bool systemUtcMs(uint64_t& out) {
+  struct timeval tv;
+  if (gettimeofday(&tv, nullptr) != 0 || tv.tv_sec < static_cast<time_t>(VL_TIME_FLOOR_S)) return false;
+  out = static_cast<uint64_t>(tv.tv_sec) * 1000u + static_cast<uint64_t>(tv.tv_usec / 1000);
+  return true;
+}
+#endif
+
 #if VL_PLATFORM_ESP32
 
 class Esp32Clock : public IClock {
  public:
   uint64_t uptimeMs() override { return static_cast<uint64_t>(esp_timer_get_time() / 1000); }
-  bool utcMs(uint64_t& out) override {
-    struct timeval tv;
-    if (gettimeofday(&tv, nullptr) != 0 || tv.tv_sec < static_cast<time_t>(VL_TIME_FLOOR_S)) return false;
-    out = static_cast<uint64_t>(tv.tv_sec) * 1000u + static_cast<uint64_t>(tv.tv_usec / 1000);
-    return true;
-  }
+  bool utcMs(uint64_t& out) override { return systemUtcMs(out); }
 };
 typedef Esp32Clock PlatformClock;
+
+#elif VL_PLATFORM_ESP8266
+
+class Esp8266Clock : public IClock {
+ public:
+  uint64_t uptimeMs() override { return micros64() / 1000; }
+  bool utcMs(uint64_t& out) override { return systemUtcMs(out); }
+};
+typedef Esp8266Clock PlatformClock;
 
 #elif defined(ARDUINO)
 

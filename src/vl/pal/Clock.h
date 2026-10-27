@@ -17,8 +17,8 @@ class IClock {
   }
 };
 
-// esp_timer + gettimeofday() on ESP32, a wrap-safe millis() extension on other
-// Arduino targets, std::chrono on a host build.
+// esp_timer (ESP32) or micros64() (ESP8266) with gettimeofday(), a wrap-safe
+// millis() extension on other Arduino targets, std::chrono on a host build.
 IClock& platformClock();
 
 // Extends a 32-bit millisecond counter to 64 bits. Must be sampled at least

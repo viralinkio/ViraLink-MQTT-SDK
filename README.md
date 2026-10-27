@@ -1,6 +1,6 @@
 # ViraLink Device Client v2
 
-ThingsBoard-compatible MQTT device client for ESP32 with an at-least-once
+ThingsBoard-compatible MQTT device client for ESP32 and ESP8266 with an at-least-once
 offline outbox. Works with ViraLink Console and any ThingsBoard CE 3.6+
 server. Design: [`docs/design/`](docs/design/).
 
@@ -8,15 +8,15 @@ server. Design: [`docs/design/`](docs/design/).
 scheduler, server- and client-side RPC, attribute requests, shared-attribute
 updates and binding, client-attribute reporting, device claiming, the
 gateway API, OTA, provisioning, health, persistence, TLS with ATECC608 keys,
-the esp-mqtt and Arduino `Client` transports, and network failover. Still
-to come: the ESP8266/STM32/AVR ports.
+the esp-mqtt and Arduino `Client` transports, network failover, and the
+ESP8266 port. Still to come: the STM32 and AVR ports.
 
 ## Install
 
 | Build system | How |
 | --- | --- |
 | PlatformIO (Arduino or ESP-IDF framework) | `lib_deps = https://github.com/viralinkio/ViraLink-Device-Client.git` |
-| Arduino IDE | Sketch → Include Library → Add .ZIP Library (needs arduino-esp32 ≥ 2.0) |
+| Arduino IDE | Sketch → Include Library → Add .ZIP Library (needs arduino-esp32 ≥ 2.0, or the ESP8266 core ≥ 3.1) |
 | ESP-IDF (`idf.py`, IDF ≥ 4.4) | Clone into `components/`, or add the path to `EXTRA_COMPONENT_DIRS` |
 
 ## Use
@@ -46,7 +46,8 @@ Examples: `examples/basic_telemetry` (Arduino), `examples/rpc_and_attributes` (A
 `examples/gateway` (Arduino), `examples/ota` (Arduino), `examples/provisioning` (Arduino),
 `examples/persistence` (Arduino), `examples/arduino_client` (Arduino),
 `examples/secure_mtls` (Arduino), `examples/multi_network` (Arduino),
-`examples/espidf_basic_telemetry` (ESP-IDF).
+`examples/ota_arduino` (Arduino), `examples/espidf_basic_telemetry` (ESP-IDF).
+`arduino_client` and `ota_arduino` also build for ESP8266; the others are ESP32 sketches.
 
 ### API modules
 
@@ -177,8 +178,24 @@ client.use(ota);
   first connection and rolled back if it crashes or is not online within
   `VL_OTA_CONFIRM_TIMEOUT_MS` (5 minutes); the package it came from then
   reports FAILED "rolled back" instead of being installed again.
-- Other targets need an `IFirmwareWriter` (and an `IHttpSource` for URL
-  packages) passed to `ota.setWriter()` / `ota.setHttp()`.
+- On ESP8266 the image goes to the free flash after the sketch and the
+  bootloader copies it over at the restart; there is no rollback.
+- `vl::StreamHttp` downloads URL packages over any Arduino `Client`: the
+  default on ESP8266 (which has no built-in source), and an alternative to
+  esp_http_client on ESP32. It sends HTTP/1.0, resumes with `Range` and
+  follows up to 3 redirects. An `https://` URL needs the second, TLS stream,
+  which the application configures:
+
+  ```cpp
+  WiFiClient web;
+  WiFiClientSecure webTls;                        // setTrustAnchors() / setCACert()
+  vl::ArduinoStream webStream(web), webTlsStream(webTls);
+  vl::StreamHttp http(webStream, &webTlsStream);  // null: http:// only
+  ota.setHttp(http);
+  ```
+
+- Other targets need an `IFirmwareWriter` passed to `ota.setWriter()`, and
+  `ota.setHttp()` for URL packages.
 - The download blocks `loop()` for at most one chunk write, or one HTTP read
   of `VL_OTA_HTTP_BLOCK` bytes (up to `VL_OTA_HTTP_TIMEOUT_MS` on a stalled link).
 
@@ -381,6 +398,30 @@ health.setSource(nets);   // vl_iface / vl_rssi: the network in use
 - Every network's transport must accept `Config::tls`, and the largest
   publish is the smallest any of them allows.
 
+### ESP8266
+
+The ESP8266 core (3.1 or later) runs the client over `BufferedStreamMqtt`
+and a `WiFiClient` (`examples/arduino_client`):
+
+- Uptime comes from `micros64()` and wall-clock time from `configTime()`;
+  the client ID is built from the station MAC, as on ESP32.
+- Health reports free heap, reset reason, `wifi` and RSSI. The lowest free
+  heap needs `UMM_STATS_FULL`, so it is left out.
+- `vl::FsStore` keeps provisioned credentials in a mounted file system, one
+  file per key, replaced atomically on LittleFS:
+
+  ```cpp
+  LittleFS.begin();
+  vl::FsStore store(LittleFS);  // files under /vl
+  ```
+
+- OTA: the platform firmware writer is used by default; set a `StreamHttp`
+  for URL packages (see OTA).
+- Not available: `startTask()` (the core has no RTOS), the file-backed
+  outbox (no POSIX file API), ATECC608 keys and `EspMqtt`.
+- The client loop must run often: StreamHttp and Arduino connects block,
+  and yield to the core's watchdog while they do.
+
 ### Claiming
 
 `client.claim("secret", 60000)` lets a user claim the device in ViraLink
@@ -391,7 +432,11 @@ Console within 60 s, using the secret key (or none, with `nullptr`).
 ```sh
 pio test -e native            # host unit tests, ASan + UBSan
 scripts/build_examples.sh     # every example: Arduino + ESP-IDF (PlatformIO), idf.py if present
+scripts/check_portability.sh  # AVR, Cortex-M0+, ESP8266, ESP32-C3 compilers and Arduino cores
 ```
+
+An example's `// Boards:` line lists the boards `build_examples.sh` builds it
+for (`esp32dev` when it has none); `BOARDS=nodemcuv2` limits a run to some.
 
 ## License
 

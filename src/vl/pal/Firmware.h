@@ -50,8 +50,9 @@ class IHttpSource {
   virtual void close() = 0;
 };
 
-// The platform's implementations, or null where there is none (every target
-// but ESP32 so far): set one with Ota::setWriter() / Ota::setHttp().
+// The platform's implementations, or null where there is none: set one with
+// Ota::setWriter() / Ota::setHttp(). ESP32 has both; ESP8266 has the writer,
+// and downloads go through a StreamHttp the application sets up.
 IFirmwareWriter* platformFirmwareWriter();
 IHttpSource* platformHttpSource();
 

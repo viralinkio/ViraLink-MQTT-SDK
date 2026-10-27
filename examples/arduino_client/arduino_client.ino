@@ -5,10 +5,16 @@
 // For TLS, wrap the Client in a TLS client you configure yourself (such as
 // SSLClient) and leave Config::tls null: the library cannot see inside it.
 //
-// connect() blocks while the Client connects; run client.loop() from its own
-// task if the sketch cannot wait.
+// connect() blocks while the Client connects; on ESP32, run client.loop()
+// from its own task if the sketch cannot wait.
+//
+// Boards: esp32dev nodemcuv2
 
+#if defined(ESP8266)
+#include <ESP8266WiFi.h>
+#else
 #include <WiFi.h>
+#endif
 #include <ViraLink.h>
 #include <time.h>
 
@@ -24,7 +30,7 @@ vl::RingOutbox<16 * 1024> outbox;
 vl::Client client(mqtt, outbox);
 
 static void sendClimate(void*) {
-  client.telemetry().add("temp", temperatureRead()).send();
+  client.telemetry().add("light", analogRead(A0)).send();
 }
 
 void setup() {

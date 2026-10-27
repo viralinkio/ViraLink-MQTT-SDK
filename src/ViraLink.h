@@ -20,6 +20,7 @@
 #include "vl/pal/FileOutboxStore.h"
 #include "vl/se/Atecc608.h"
 #include "vl/transport/AteccTlsStream.h"
+#include "vl/transport/StreamHttp.h"
 #include "vl/transport/StreamMqtt.h"
 
 #if defined(ARDUINO)
@@ -32,4 +33,9 @@
 #include "vl/platform/esp32/EspNetif.h"
 #include "vl/platform/esp32/EspNvs.h"
 #include "vl/platform/esp32/EspOta.h"
+#endif
+
+#if VL_PLATFORM_ESP8266
+#include "vl/platform/esp8266/Esp8266Ota.h"
+#include "vl/platform/esp8266/FsStore.h"
 #endif
