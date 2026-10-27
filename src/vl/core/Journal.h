@@ -8,14 +8,12 @@
 #include <stdint.h>
 
 #include "vl/Result.h"
+#include "vl/core/Crc16.h"
 #include "vl/core/Outbox.h"
 #include "vl/pal/Lock.h"
 #include "vl/pal/OutboxStore.h"
 
 namespace vl {
-
-// CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF).
-uint16_t crc16(const uint8_t* p, size_t n, uint16_t crc = 0xFFFF);
 
 // Gateway sub-device index <-> name. Indexes last one boot, so a saved record
 // carries its device's name and gets a new index when restored. Called with

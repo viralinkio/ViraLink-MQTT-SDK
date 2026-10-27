@@ -15,6 +15,8 @@
 #elif VL_PLATFORM_ESP8266
 #include <Arduino.h>
 #include <user_interface.h>
+#elif VL_PLATFORM_STM32
+#include <Arduino.h>
 #elif defined(ARDUINO)
 #include <Arduino.h>
 #else
@@ -23,11 +25,61 @@
 
 namespace vl {
 
+#if VL_PLATFORM_STM32
+namespace {
+
+void stm32Uid(uint32_t w[3]) {
+  w[0] = HAL_GetUIDw0();
+  w[1] = HAL_GetUIDw1();
+  w[2] = HAL_GetUIDw2();
+}
+
+// The RNG peripheral, where the chip has one and its clock runs.
+bool stm32HardwareRandom(uint32_t& out) {
+#if defined(RNG) && defined(__HAL_RCC_RNG_CLK_ENABLE)
+  static bool started = false;
+  if (!started) {
+    __HAL_RCC_RNG_CLK_ENABLE();
+    RNG->CR |= RNG_CR_RNGEN;
+    started = true;
+  }
+  for (int i = 0; i < 2000; ++i) {
+    uint32_t sr = RNG->SR;
+    if (sr & (RNG_SR_SECS | RNG_SR_CECS)) return false;  // seed or clock error
+    if (sr & RNG_SR_DRDY) {
+      out = RNG->DR;
+      return true;
+    }
+  }
+#else
+  (void)out;
+#endif
+  return false;
+}
+
+}  // namespace
+#endif
+
 uint32_t platformRandom() {
 #if VL_PLATFORM_ESP32
   return esp_random();
 #elif VL_PLATFORM_ESP8266
   return RANDOM_REG32;  // hardware RNG
+#elif VL_PLATFORM_STM32
+  uint32_t v;
+  if (stm32HardwareRandom(v)) return v;
+  // xorshift32 seeded from the unique ID: enough for devices to differ.
+  static uint32_t s = 0;
+  if (!s) {
+    uint32_t w[3];
+    stm32Uid(w);
+    s = w[0] ^ (w[1] * 2654435761u) ^ (w[2] * 40503u) ^ micros();
+    if (!s) s = 1;
+  }
+  s ^= s << 13;
+  s ^= s >> 17;
+  s ^= s << 5;
+  return s;
 #elif defined(ARDUINO)
   static bool seeded = false;
   if (!seeded) {
@@ -55,6 +107,13 @@ void platformClientId(char* out, size_t cap) {
   esp_efuse_mac_get_default(mac);
 #elif VL_PLATFORM_ESP8266
   wifi_get_macaddr(STATION_IF, mac);
+#elif VL_PLATFORM_STM32
+  uint32_t w[3];
+  stm32Uid(w);  // 96 bits folded to 48
+  uint32_t a = w[0] ^ w[2];
+  for (int i = 0; i < 4; ++i) mac[i] = static_cast<uint8_t>(a >> (8 * i));
+  mac[4] = static_cast<uint8_t>(w[1] ^ (w[1] >> 16));
+  mac[5] = static_cast<uint8_t>((w[1] >> 8) ^ (w[1] >> 24));
 #else
   uint32_t a = platformRandom(), b = platformRandom();
   for (int i = 0; i < 4; ++i) mac[i] = static_cast<uint8_t>(a >> (8 * i));

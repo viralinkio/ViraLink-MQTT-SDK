@@ -1,6 +1,6 @@
 # ViraLink Device Client v2
 
-ThingsBoard-compatible MQTT device client for ESP32 and ESP8266 with an at-least-once
+ThingsBoard-compatible MQTT device client for ESP32, ESP8266 and STM32 with an at-least-once
 offline outbox. Works with ViraLink Console and any ThingsBoard CE 3.6+
 server. Design: [`docs/design/`](docs/design/).
 
@@ -8,15 +8,16 @@ server. Design: [`docs/design/`](docs/design/).
 scheduler, server- and client-side RPC, attribute requests, shared-attribute
 updates and binding, client-attribute reporting, device claiming, the
 gateway API, OTA, provisioning, health, persistence, TLS with ATECC608 keys,
-the esp-mqtt and Arduino `Client` transports, network failover, and the
-ESP8266 port. Still to come: the STM32 and AVR ports.
+the esp-mqtt and Arduino `Client` transports, network failover, the ESP8266
+and STM32 ports, and SPI NOR flash storage. Still to come: OTA on STM32
+(MCUboot) and the AVR port.
 
 ## Install
 
 | Build system | How |
 | --- | --- |
 | PlatformIO (Arduino or ESP-IDF framework) | `lib_deps = https://github.com/viralinkio/ViraLink-Device-Client.git` |
-| Arduino IDE | Sketch → Include Library → Add .ZIP Library (needs arduino-esp32 ≥ 2.0, or the ESP8266 core ≥ 3.1) |
+| Arduino IDE | Sketch → Include Library → Add .ZIP Library (needs arduino-esp32 ≥ 2.0, the ESP8266 core ≥ 3.1, or STM32duino ≥ 2.11) |
 | ESP-IDF (`idf.py`, IDF ≥ 4.4) | Clone into `components/`, or add the path to `EXTRA_COMPONENT_DIRS` |
 
 ## Use
@@ -46,8 +47,9 @@ Examples: `examples/basic_telemetry` (Arduino), `examples/rpc_and_attributes` (A
 `examples/gateway` (Arduino), `examples/ota` (Arduino), `examples/provisioning` (Arduino),
 `examples/persistence` (Arduino), `examples/arduino_client` (Arduino),
 `examples/secure_mtls` (Arduino), `examples/multi_network` (Arduino),
-`examples/ota_arduino` (Arduino), `examples/espidf_basic_telemetry` (ESP-IDF).
-`arduino_client` and `ota_arduino` also build for ESP8266; the others are ESP32 sketches.
+`examples/ota_arduino` (Arduino), `examples/stm32_flash` (Arduino, STM32),
+`examples/espidf_basic_telemetry` (ESP-IDF). `arduino_client` and
+`ota_arduino` also build for ESP8266; the others are ESP32 sketches.
 
 ### API modules
 
@@ -260,9 +262,10 @@ client.use(persist);  // before begin(): restores what an earlier boot saved
 - The store is a log of CRC-checked entries in segments, recovered up to the
   last intact entry. It needs at least 3 segments and twice the ring's
   capacity. `FileOutboxStore` keeps one file per segment on any mounted
-  ESP32 file system (LittleFS recommended); other media implement
-  `vl::IOutboxStore`. A store error is logged and the client carries on
-  from RAM.
+  ESP32 file system (LittleFS recommended); `FlashOutboxStore` puts the
+  segments straight on SPI NOR flash (see SPI NOR flash); other media
+  implement `vl::IOutboxStore`. A store error is logged and the client
+  carries on from RAM.
 - Saving runs on the client task, outside the lock, so producers never wait
   for flash.
 
@@ -422,6 +425,64 @@ and a `WiFiClient` (`examples/arduino_client`):
   outbox (no POSIX file API), ATECC608 keys and `EspMqtt`.
 - The client loop must run often: StreamHttp and Arduino connects block,
   and yield to the core's watchdog while they do.
+
+### STM32
+
+STM32duino (2.11 or later) runs the client over `BufferedStreamMqtt` and any
+Arduino `Client`: a W5500 `EthernetClient`, a `TinyGsmClient`, or
+`STM32Ethernet` on boards with a MAC (`examples/stm32_flash`).
+
+- The client ID comes from the chip's 96-bit unique ID, so it is stable
+  across boots. Backoff jitter uses the RNG peripheral where the chip has
+  one and its clock runs, and a generator seeded from the unique ID
+  elsewhere (F1, F401, F411 and others have no RNG).
+- There is no wall clock: call `vl::setUtcMs(ms)` once the application has
+  the time (NTP over UDP, a modem's `AT+CCLK`, an RTC). Until then records
+  go without `ts`; those still queued are stamped when it is set. Works on
+  any target; on ESP32 and ESP8266 it sets the system time.
+- Health reports free heap and the reset reason. The reason is read from
+  the RCC flags at the first report, which then clears them (as
+  `IWatchdog::isReset(true)` would).
+- Credentials and the outbox go on an SPI NOR chip (next section). Internal
+  flash is not used: its sectors are large and differ between families.
+- With every module enabled, a sketch takes about 70 KB of flash and 14 KB
+  of RAM (core included), so pick a part with 128 KB of flash or more: a
+  64 KB Blue Pill does not fit. The `VL_ENABLE_*` switches in `Config.h`
+  leave out the modules you do not use.
+- Not available yet: OTA (MCUboot, next), `startTask()` (no RTOS is
+  assumed; with STM32FreeRTOS, implement `vl::ILock` and call `loop()` from
+  one task).
+
+### SPI NOR flash
+
+A W25Q (or GD25Q, MX25L: any JEDEC chip with 4 KB sectors) holds the
+credentials store and the persistent outbox, on any target with SPI:
+
+```cpp
+vl::ArduinoSpi flashSpi(SPI, FLASH_CS);               // a transaction per command: the bus can be shared
+vl::W25qFlash flash(flashSpi);
+vl::FlashRegion kvArea(flash, 0, 2 * 4096);           // offsets and sizes in whole 4 KB sectors
+vl::FlashRegion outboxArea(flash, 64 * 1024, 8 * 4096);
+vl::FlashKvStore credentials(kvArea);                 // for vl::Provisioning
+vl::FlashOutboxStore outboxStore(outboxArea, 8, 4096);
+vl::Persistence persist(outboxStore);
+
+void setup() {
+  SPI.begin();
+  flash.begin();         // identifies the chip; before client.use(persist)
+  client.use(persist);
+}
+```
+
+- `FlashKvStore` survives power cuts: a cut during a write leaves the old
+  value or the new one. It needs two or more sectors and keeps an
+  append-only log, compacted into its spare half when full. Writing the
+  value already stored costs nothing.
+- `FlashOutboxStore` maps each outbox segment onto whole sectors; programs
+  are durable when they return, so nothing waits for a sync.
+- Programs and erases block while the chip works (a sector erase can take
+  400 ms) and yield meanwhile. Chips over 16 MB are used for their first
+  16 MB. Values and records are stored in the clear.
 
 ### Claiming
 

@@ -14,6 +14,9 @@
 #include "vl/api/Persistence.h"
 #include "vl/api/Provision.h"
 #include "vl/api/Rpc.h"
+#include "vl/flash/FlashKvStore.h"
+#include "vl/flash/FlashOutboxStore.h"
+#include "vl/flash/W25qFlash.h"
 #include "vl/core/JsonReader.h"
 #include "vl/core/JsonWriter.h"
 #include "vl/net/Networks.h"
@@ -24,6 +27,7 @@
 #include "vl/transport/StreamMqtt.h"
 
 #if defined(ARDUINO)
+#include "vl/flash/ArduinoSpi.h"
 #include "vl/se/WireI2c.h"
 #include "vl/transport/ArduinoStream.h"
 #endif

@@ -4,8 +4,8 @@
 
 namespace vl {
 
-#if !VL_PLATFORM_ESP32 && !VL_PLATFORM_ESP8266
-// Defined in platform/esp32/EspSystemInfo.cpp and platform/esp8266/Esp8266SystemInfo.cpp.
+#if !VL_PLATFORM_ESP32 && !VL_PLATFORM_ESP8266 && !VL_PLATFORM_STM32
+// Defined in platform/<target>/*SystemInfo.cpp.
 ISystemInfo& platformSystemInfo() {
   static ISystemInfo unknown;
   return unknown;

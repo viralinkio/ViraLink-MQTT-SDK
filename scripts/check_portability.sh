@@ -10,13 +10,14 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="${PLATFORMIO_CORE_DIR:-$HOME/.platformio}/packages"
-BOARDS="${PORT_BOARDS:-megaatmega2560 nucleo_f401re nodemcuv2}"
+# The STM32 boards span the RCC and RNG register variants (F1, F4, G0, H7).
+BOARDS="${PORT_BOARDS:-megaatmega2560 nucleo_f401re nucleo_f103rb nucleo_g071rb nucleo_h743zi nodemcuv2}"
 FLAGS=(-std=gnu++11 -Os -Wall -Wextra -Werror -fno-exceptions -fno-rtti "-I$ROOT/src")
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 shopt -s nullglob
-SOURCES=("$ROOT"/src/vl/core/*.cpp "$ROOT"/src/vl/api/*.cpp "$ROOT"/src/vl/net/*.cpp "$ROOT"/src/vl/se/*.cpp "$ROOT"/src/vl/transport/*.cpp "$ROOT/src/vl/Client.cpp" "$ROOT/src/vl/Log.cpp")
+SOURCES=("$ROOT"/src/vl/core/*.cpp "$ROOT"/src/vl/api/*.cpp "$ROOT"/src/vl/net/*.cpp "$ROOT"/src/vl/flash/*.cpp "$ROOT"/src/vl/se/*.cpp "$ROOT"/src/vl/transport/*.cpp "$ROOT/src/vl/Client.cpp" "$ROOT/src/vl/Log.cpp")
 
 compile() {  # name compiler [target flags...]
   local name=$1 cc=$2
@@ -38,6 +39,6 @@ compile esp32c3 "$PKG/toolchain-riscv32-esp/bin/riscv32-esp-elf-g++" -march=rv32
 
 for board in $BOARDS; do
   echo "== arduino $board"
-  # The library does not advertise these platforms yet, hence lib_compat_mode.
+  # The library does not advertise AVR yet, hence lib_compat_mode.
   pio ci "$ROOT/test/portability/portability.ino" --lib "$ROOT" --board "$board" -O "lib_compat_mode=off"
 done

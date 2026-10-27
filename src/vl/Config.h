@@ -17,6 +17,12 @@
 #define VL_PLATFORM_ESP8266 0
 #endif
 
+#if defined(ARDUINO_ARCH_STM32)
+#define VL_PLATFORM_STM32 1
+#else
+#define VL_PLATFORM_STM32 0
+#endif
+
 #if defined(__AVR__)
 #define VL_PROFILE_LITE 1
 #else

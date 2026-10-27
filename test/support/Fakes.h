@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "vl/flash/Flash.h"
 #include "vl/pal/Clock.h"
 #include "vl/pal/KeyValueStore.h"
 #include "vl/pal/OutboxStore.h"
@@ -305,6 +306,63 @@ class FakeFlash : public vl::IOutboxStore {
       return true;
     }
     return dead;
+  }
+};
+
+// NOR flash: programming ANDs into the cells, erase sets a block to 0xFF.
+// budget counts bytes that may still be programmed (an erase costs 1); when
+// it runs out the power fails, leaving the byte being programmed half done or
+// the block being erased half erased, and every call fails until powerCycle().
+class FakeNor : public vl::IFlash {
+ public:
+  std::vector<uint8_t> mem;
+  uint32_t block;
+  long budget = -1;
+  bool dead = false;
+  bool ready = true;       // size() is 0 until the chip is "identified"
+  bool overwrote = false;  // a program hit bytes that were not erased
+  int programs = 0;
+  int erases = 0;
+
+  explicit FakeNor(uint32_t bytes, uint32_t blockSize = 4096) : mem(bytes, 0xFF), block(blockSize) {}
+
+  void powerCycle() {
+    dead = false;
+    budget = -1;
+  }
+  uint32_t size() const override { return ready ? static_cast<uint32_t>(mem.size()) : 0; }
+  uint32_t eraseSize() const override { return block; }
+  vl::Result read(uint32_t addr, uint8_t* buf, size_t n) override {
+    if (dead || addr > mem.size() || n > mem.size() - addr) return vl::Result::Rejected;
+    memcpy(buf, &mem[addr], n);
+    return vl::Result::Ok;
+  }
+  vl::Result program(uint32_t addr, const uint8_t* p, size_t n) override {
+    if (dead || addr > mem.size() || n > mem.size() - addr) return vl::Result::Rejected;
+    ++programs;
+    for (size_t i = 0; i < n; ++i) {
+      if (budget == 0) {
+        mem[addr + i] &= static_cast<uint8_t>(p[i] | 0x5A);  // half-programmed
+        dead = true;
+        return vl::Result::Rejected;
+      }
+      if ((mem[addr + i] & p[i]) != p[i]) overwrote = true;
+      mem[addr + i] &= p[i];
+      if (budget > 0) --budget;
+    }
+    return vl::Result::Ok;
+  }
+  vl::Result erase(uint32_t addr) override {
+    if (dead || addr % block || addr >= mem.size()) return vl::Result::Rejected;
+    ++erases;
+    if (budget == 0) {
+      memset(&mem[addr], 0xFF, block / 2);
+      dead = true;
+      return vl::Result::Rejected;
+    }
+    if (budget > 0) --budget;
+    memset(&mem[addr], 0xFF, block);
+    return vl::Result::Ok;
   }
 };
 

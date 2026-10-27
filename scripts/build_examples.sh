@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds every example against the library in this checkout:
 #   - Arduino sketches with PlatformIO (framework = arduino), on each board
-#     the sketch lists in its "// Boards:" line (esp32dev when it has none)
+#     the sketch lists in its "// Boards:" line (esp32dev when it has none),
+#     with the registry libraries of its "// Libraries:" line
 #   - the ESP-IDF example with PlatformIO (framework = espidf)
 #   - the ESP-IDF example with idf.py, if an ESP-IDF environment is active
 # BOARDS="nodemcuv2" limits the Arduino builds to those boards.
@@ -12,6 +13,7 @@ IDF_BOARDS="${IDF_BOARDS:-esp32dev}"
 # Platform per framework; override to test other core / ESP-IDF releases.
 ARDUINO_PLATFORM="${ARDUINO_PLATFORM:-espressif32}"
 ESP8266_PLATFORM="${ESP8266_PLATFORM:-espressif8266}"
+STM32_PLATFORM="${STM32_PLATFORM:-ststm32}"
 IDF_PLATFORM="${IDF_PLATFORM:-espressif32@6.6.0}"  # ESP-IDF 5.2
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -19,17 +21,19 @@ trap 'rm -rf "$WORK"' EXIT
 platform_for() {
   case "$1" in
     nodemcu* | d1_mini* | esp01* | esp12e | esp8285 | huzzah) echo "$ESP8266_PLATFORM" ;;
+    nucleo_* | bluepill* | blackpill* | genericSTM32*) echo "$STM32_PLATFORM" ;;
     *) echo "$ARDUINO_PLATFORM" ;;
   esac
 }
 
 for ino in "$ROOT"/examples/*/*.ino; do
   targets="$(sed -n 's#^// Boards: ##p' "$ino" | head -n 1)"
+  libs="$(sed -n 's#^// Libraries: ##p' "$ino" | head -n 1 | tr ' ' ',')"
   for board in ${targets:-esp32dev}; do
     if [ -n "$BOARDS" ] && [[ " $BOARDS " != *" $board "* ]]; then continue; fi
     echo "== arduino $board $(basename "$ino")"
     pio ci "$ino" --lib "$ROOT" --board "$board" -O "platform=$(platform_for "$board")" -O "framework=arduino" \
-      -O "build_flags=-Wall -Werror"
+      -O "build_flags=-Wall -Werror" ${libs:+-O "lib_deps=$libs"}
   done
 done
 

@@ -52,9 +52,12 @@ typedef Esp8266Clock PlatformClock;
 class ArduinoClock : public IClock {
  public:
   uint64_t uptimeMs() override { return ext_.extend(millis()); }
+  bool utcMs(uint64_t& out) override { return utc_.get(uptimeMs(), out); }
+  void setUtc(uint64_t ms) { utc_.set(ms, uptimeMs()); }
 
  private:
   WrapSafeMillis ext_;
+  UtcOffset utc_;
 };
 typedef ArduinoClock PlatformClock;
 
@@ -67,20 +70,40 @@ class HostClock : public IClock {
     return static_cast<uint64_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
   }
   bool utcMs(uint64_t& out) override {
+    if (utc_.get(uptimeMs(), out)) return true;
     using namespace std::chrono;
     out = static_cast<uint64_t>(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
     return true;
   }
+  void setUtc(uint64_t ms) { utc_.set(ms, uptimeMs()); }
+
+ private:
+  UtcOffset utc_;
 };
 typedef HostClock PlatformClock;
 
 #endif
 
-}  // namespace
-
-IClock& platformClock() {
+PlatformClock& theClock() {
   static PlatformClock clock;
   return clock;
+}
+
+}  // namespace
+
+IClock& platformClock() { return theClock(); }
+
+bool setUtcMs(uint64_t utcMs) {
+  if (utcMs < static_cast<uint64_t>(VL_TIME_FLOOR_S) * 1000u) return false;
+#if VL_PLATFORM_ESP32 || VL_PLATFORM_ESP8266
+  struct timeval tv;
+  tv.tv_sec = static_cast<time_t>(utcMs / 1000);
+  tv.tv_usec = static_cast<suseconds_t>((utcMs % 1000) * 1000);
+  return settimeofday(&tv, nullptr) == 0;
+#else
+  theClock().setUtc(utcMs);
+  return true;
+#endif
 }
 
 }  // namespace vl
