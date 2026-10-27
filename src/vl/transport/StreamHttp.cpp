@@ -21,6 +21,12 @@ bool prefixNoCase(const char* s, const char* prefix) {
 
 bool isDigit(char c) { return c >= '0' && c <= '9'; }
 
+// Letters, digits, '.', '-' and '_'; IPv6 literals also take ':'.
+bool hostChar(char c, bool v6) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || isDigit(c) || c == '.' || c == '-' || c == '_' ||
+         (v6 && c == ':');
+}
+
 bool endsAuthority(char c) { return c == '\0' || c == '/' || c == '?' || c == '#'; }
 
 // Decimal digits and nothing else; false when empty or above max.
@@ -45,6 +51,12 @@ bool isRedirect(int status) {
 
 bool parseHttpUrl(const char* url, HttpUrl& out) {
   if (!url) return false;
+  // The URL goes into the request line: no spaces or control bytes, so a
+  // server cannot inject headers through fw_url or a Location.
+  for (const char* c = url; *c; ++c) {
+    unsigned char b = static_cast<unsigned char>(*c);
+    if (b <= 0x20 || b == 0x7f) return false;
+  }
   const char* p;
   if (prefixNoCase(url, "http://")) {
     out.tls = false;
@@ -70,6 +82,9 @@ bool parseHttpUrl(const char* url, HttpUrl& out) {
   }
   size_t len = static_cast<size_t>(hostEnd - host);
   if (len == 0 || len >= sizeof(out.host)) return false;
+  for (const char* c = host; c < hostEnd; ++c) {
+    if (!hostChar(*c, host != url && host[-1] == '[')) return false;
+  }
   memcpy(out.host, host, len);
   out.host[len] = '\0';
   out.explicitPort = false;
@@ -98,12 +113,18 @@ Result StreamHttp::open(const char* url, size_t offset, const ITlsProvider* tls,
   size_t len = url ? strlen(url) : sizeof(url_);
   if (len >= sizeof(url_)) return Result::Rejected;
   memcpy(url_, url, len + 1);
+  bool secured = false;  // an earlier hop used TLS
   for (int hop = 0;; ++hop) {
     HttpUrl u;
     if (!parseHttpUrl(url_, u)) {
       VL_LOGW("ota: not an http(s) URL");
       return Result::Rejected;
     }
+    if (secured && !u.tls) {
+      VL_LOGW("ota: refused a redirect from https to http");
+      return Result::Rejected;
+    }
+    secured = secured || u.tls;
     int status = 0;
     bool relocated = false;
     Result r = request(u, offset, tls);

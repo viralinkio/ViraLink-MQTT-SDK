@@ -20,15 +20,16 @@ struct HttpUrl {
   const char* path = nullptr;
 };
 
-// False for another scheme, user info, an empty or over-long host, or a bad port.
+// False for another scheme, user info, a bad port, an empty or over-long host
+// or one with characters no host name has, and any space or control byte.
 bool parseHttpUrl(const char* url, HttpUrl& out);
 
 // IHttpSource for fw_url downloads over INetStreams, so any Arduino Client
 // works (WiFiClient, EthernetClient, TinyGsmClient through ArduinoStream).
 // Sends HTTP/1.0, so the body is never chunked; resumes with Range; follows
-// up to 3 redirects. https:// URLs go through secure, which gets the
-// ITlsProvider and must accept it (validate()); without secure they are
-// refused. open() waits at most VL_OTA_HTTP_TIMEOUT_MS for each reply's
+// up to 3 redirects, never from https back to http. https:// URLs go through
+// secure, which gets the ITlsProvider and must accept it (validate());
+// without secure they are refused. open() waits at most VL_OTA_HTTP_TIMEOUT_MS for each reply's
 // headers, and read() fails after that long without a byte; both poll the
 // stream and block meanwhile. Used on the client task only.
 class StreamHttp : public IHttpSource {

@@ -183,7 +183,8 @@ client.use(ota);
 - `vl::StreamHttp` downloads URL packages over any Arduino `Client`: the
   default on ESP8266 (which has no built-in source), and an alternative to
   esp_http_client on ESP32. It sends HTTP/1.0, resumes with `Range` and
-  follows up to 3 redirects. An `https://` URL needs the second, TLS stream,
+  follows up to 3 redirects (never from `https` to `http`). An `https://` URL
+  needs the second, TLS stream,
   which the application configures:
 
   ```cpp

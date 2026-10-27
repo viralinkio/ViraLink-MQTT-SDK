@@ -108,7 +108,9 @@ static void test_parse_url() {
   TEST_ASSERT_EQUAL_UINT16(8080, u.port);
 
   const char* bad[] = {"ftp://h/f", "http://", "http:///f", "http://h:/f", "http://h:0/f", "http://h:65536/f",
-                       "http://h:80x/f", "http://[fd00::1/f", "h/f", "http://user@h/f", nullptr};
+                       "http://h:80x/f", "http://[fd00::1/f", "h/f", "http://user@h/f",
+                       "http://h/f\r\nX-Evil: 1", "http://h/f HTTP/1.1", "http://h/\x7f", "http://h\tx/f",
+                       "http://h%0d/f", "http://h;x/f", "http://h:x@y/f", "http://[fd00::1;x]/f", nullptr};
   for (int i = 0; bad[i]; ++i) TEST_ASSERT_FALSE_MESSAGE(parseHttpUrl(bad[i], u), bad[i]);
 
   std::string longHost = "http://" + std::string(sizeof(u.host), 'a') + "/f";
@@ -232,6 +234,41 @@ static void test_redirect_limits() {
   StreamHttp h3(longLoc, nullptr, &clock);
   TEST_ASSERT_NOT_EQUAL(Result::Ok, h3.open("http://h/f", 0, nullptr, start, total));
   TEST_ASSERT_EQUAL_INT(1, longLoc.connects);
+}
+
+static void test_https_never_redirects_to_http() {
+  FakeClock clock;
+  HttpStream net, tlsNet;
+  tlsNet.judge = true;
+  tlsNet.replies.push_back("HTTP/1.1 302 Found\r\nLocation: http://h/fw.bin\r\n\r\n");
+  net.replies.push_back(ok200("plaintext"));
+  StreamHttp http(net, &tlsNet, &clock);
+  size_t start, total;
+  TEST_ASSERT_EQUAL(Result::Rejected, http.open("https://h/fw.bin", 0, nullptr, start, total));
+  TEST_ASSERT_EQUAL_INT(0, net.connects);
+  TEST_ASSERT_EQUAL_INT(1, tlsNet.stops);
+
+  // Nor through a scheme-relative or path-only Location after an https hop.
+  HttpStream mixed, mixedTls;
+  mixedTls.judge = true;
+  mixed.replies.push_back("HTTP/1.1 302 Found\r\nLocation: https://h/a\r\n\r\n");
+  mixedTls.replies.push_back("HTTP/1.1 302 Found\r\nLocation: http://h/b\r\n\r\n");
+  StreamHttp h2(mixed, &mixedTls, &clock);
+  TEST_ASSERT_EQUAL(Result::Rejected, h2.open("http://h/f", 0, nullptr, start, total));
+  TEST_ASSERT_EQUAL_INT(1, mixed.connects);
+}
+
+static void test_location_cannot_inject_headers() {
+  FakeClock clock;
+  HttpStream net;
+  // A bare CR survives readLine(); the URL check stops it reaching the request.
+  net.replies.push_back("HTTP/1.1 302 Found\r\nLocation: /f\rX-Evil: 1\r\n\r\n");
+  net.replies.push_back(ok200("x"));
+  StreamHttp http(net, nullptr, &clock);
+  size_t start, total;
+  TEST_ASSERT_EQUAL(Result::Rejected, http.open("http://h/f", 0, nullptr, start, total));
+  TEST_ASSERT_EQUAL_INT(1, net.connects);
+  TEST_ASSERT_EQUAL(std::string::npos, net.out.find("X-Evil"));
 }
 
 static void test_refused_replies() {
@@ -388,6 +425,8 @@ int main(int, char**) {
   RUN_TEST(test_range_ignored_restarts_at_zero);
   RUN_TEST(test_redirects_are_followed);
   RUN_TEST(test_redirect_limits);
+  RUN_TEST(test_https_never_redirects_to_http);
+  RUN_TEST(test_location_cannot_inject_headers);
   RUN_TEST(test_refused_replies);
   RUN_TEST(test_https_needs_the_secure_stream);
   RUN_TEST(test_body_bounded_by_content_length);
