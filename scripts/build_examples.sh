@@ -15,6 +15,7 @@ ARDUINO_PLATFORM="${ARDUINO_PLATFORM:-espressif32}"
 ESP8266_PLATFORM="${ESP8266_PLATFORM:-espressif8266}"
 STM32_PLATFORM="${STM32_PLATFORM:-ststm32}"
 IDF_PLATFORM="${IDF_PLATFORM:-espressif32@6.6.0}"  # ESP-IDF 5.2
+"$ROOT/scripts/version.sh" check >/dev/null  # the three manifests must agree before anything ships
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
