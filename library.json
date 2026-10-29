@@ -63,6 +63,11 @@
       "name": "multi_network",
       "base": "examples/multi_network",
       "files": ["multi_network.ino"]
+    },
+    {
+      "name": "compat_v1",
+      "base": "examples/compat_v1",
+      "files": ["compat_v1.ino"]
     }
   ]
 }

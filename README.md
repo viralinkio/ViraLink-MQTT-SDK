@@ -8,8 +8,8 @@ server. Design: [`docs/design/`](docs/design/).
 scheduler, server- and client-side RPC, attribute requests, shared-attribute
 updates and binding, client-attribute reporting, device claiming, the
 gateway API, OTA, provisioning, health, persistence, TLS with ATECC608 keys,
-the esp-mqtt and Arduino `Client` transports, and network failover. Still
-to come: the ESP8266/STM32/AVR ports.
+the esp-mqtt and Arduino `Client` transports, network failover, and a
+1.0.2 compatibility header. Still to come: the ESP8266/STM32/AVR ports.
 
 ## Install
 
@@ -181,6 +181,10 @@ client.use(ota);
   packages) passed to `ota.setWriter()` / `ota.setHttp()`.
 - The download blocks `loop()` for at most one chunk write, or one HTTP read
   of `VL_OTA_HTTP_BLOCK` bytes (up to `VL_OTA_HTTP_TIMEOUT_MS` on a stalled link).
+- `ota.hold(true)` keeps packages from downloading, e.g. while on a metered
+  GSM link. A download in progress is abandoned and starts over after
+  `ota.hold(false)`. Reporting the running firmware and confirming a new
+  image carry on.
 
 ### Provisioning
 
@@ -386,6 +390,15 @@ health.setSource(nets);   // vl_iface / vl_rssi: the network in use
 `client.claim("secret", 60000)` lets a user claim the device in ViraLink
 Console within 60 s, using the secret key (or none, with `nullptr`).
 
+## Migrating from 1.0.2
+
+A ViraLink-MQTT-Client 1.0.2 sketch builds unchanged against this library
+after one edit, `#include <ViraLinkCompat.h>` in place of `"viralink.h"`
+(ArduinoJson 7 still required). `MQTTController` and `MQTTOTA` then run on
+the v2 client, its outbox and its OTA. [`docs/MIGRATING.md`](docs/MIGRATING.md)
+lists what changes underneath, what the shim leaves out, and the v2 call for
+every 1.0.2 one. Example: `compat_v1`.
+
 ## Develop
 
 ```sh
@@ -395,4 +408,4 @@ scripts/build_examples.sh     # every example: Arduino + ESP-IDF (PlatformIO), i
 
 ## License
 
-Apache-2.0.
+Apache-2.0; see `LICENSE` and `NOTICE`.

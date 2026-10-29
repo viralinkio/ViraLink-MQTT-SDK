@@ -116,7 +116,7 @@ void Ota::onOnline() {
   }
   requestTarget(now);
   // Resume at the current chunk with a new request id.
-  if (phase_ == Phase::Downloading && !target_.url[0]) requestChunk(now);
+  if (phase_ == Phase::Downloading && !target_.url[0] && !held_) requestChunk(now);
 }
 
 void Ota::tick(uint64_t nowMs) {
@@ -126,6 +126,18 @@ void Ota::tick(uint64_t nowMs) {
     pendingConfirm_ = false;
     VL_LOGE("ota: new firmware never came online, rolling back");
     writer_->rollback();
+  }
+  bool held = held_;
+  if (held != wasHeld_) {
+    wasHeld_ = held;
+    if (held && phase_ == Phase::Downloading) {
+      VL_LOGI("ota: download of %s %s held", target_.title, target_.version);
+      abortDownload();
+      phase_ = Phase::Idle;
+    } else if (!held) {
+      needTarget_ = true;  // read the package again
+      targetRetryAt_ = 0;
+    }
   }
   if (needTarget_ && client_->online() && nowMs >= targetRetryAt_) requestTarget(nowMs);
   if (phase_ == Phase::Downloading) {
@@ -254,6 +266,11 @@ void Ota::applyTarget(const Target& t, const char* error) {
   }
   if (error) {
     fail(error);
+    return;
+  }
+  if (held_) {
+    phase_ = Phase::Idle;  // waits; tick() reads it again on release
+    VL_LOGI("ota: %s %s waits, downloads are held", t.title, t.version);
     return;
   }
   startDownload();

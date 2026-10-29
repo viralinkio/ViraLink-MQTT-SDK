@@ -1,0 +1,16 @@
+ViraLink-MQTT-SDK
+Copyright 2026 ViraLink
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It was written from scratch to its design document. It contains no code from
+ViraLink-MQTT-Client 1.0.2 or from the ThingsBoard Arduino SDK
+(thingsboard-client-sdk, MIT License, Copyright (c) ThingsBoard, Inc.); only
+behaviour and the public ThingsBoard MQTT device and gateway API are
+reimplemented. Code adapted from the ThingsBoard SDK in future must keep its
+MIT copyright and permission notice here.
+
+The test suite fetches, but this product does not include:
+  - Unity (MIT License, Copyright (c) ThrowTheSwitch.org)
+  - ArduinoJson (MIT License, Copyright (c) Benoit Blanchon), used only by
+    the optional ViraLinkCompat.h and its tests

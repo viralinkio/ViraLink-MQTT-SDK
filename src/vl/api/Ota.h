@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+
 #include "vl/IApiModule.h"
 #include "vl/Result.h"
 #include "vl/core/Hash.h"
@@ -58,6 +60,12 @@ class Ota : public ApiModule {
   }
   // Last reported state.
   OtaState state() const { return state_; }
+  // While held, no download starts and one in progress is abandoned; the
+  // package is read again on release and downloaded from the start. Reporting
+  // the running firmware and confirming a new image go on. For links where a
+  // download is unwelcome, such as metered cellular. Thread-safe.
+  void hold(bool on) { held_ = on; }
+  bool held() const { return held_; }
 
   void topics(TopicSink& sink) override;
   bool handle(const Topic& topic, Bytes payload) override;
@@ -123,6 +131,8 @@ class Ota : public ApiModule {
   bool writerOpen_ = false;
   bool httpOpen_ = false;
   bool restarting_ = false;
+  std::atomic<bool> held_{false};
+  bool wasHeld_ = false;  // held_ as tick() last saw it
   uint64_t confirmDeadline_ = 0;
   uint64_t restartAt_ = 0;
   uint32_t targetReq_ = 0;  // pending attribute request, 0 = none

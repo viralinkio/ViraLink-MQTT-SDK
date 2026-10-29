@@ -16,7 +16,9 @@ trap 'rm -rf "$WORK"' EXIT
 for board in $BOARDS; do
   for ino in "$ROOT"/examples/*/*.ino; do
     echo "== arduino $board $(basename "$ino")"
-    pio ci "$ino" --lib "$ROOT" --board "$board" -O "platform=$ARDUINO_PLATFORM" -O "framework=arduino" -O "build_flags=-Wall -Werror"
+    # ArduinoJson only for compat_v1 (ViraLinkCompat.h); the library needs none.
+    pio ci "$ino" --lib "$ROOT" --board "$board" -O "platform=$ARDUINO_PLATFORM" -O "framework=arduino" \
+      -O "build_flags=-Wall -Werror" -O "lib_deps=bblanchon/ArduinoJson@^7.4.2"
   done
 
   echo "== espidf (pio) $board espidf_basic_telemetry"

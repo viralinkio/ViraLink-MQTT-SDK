@@ -22,6 +22,9 @@ Both must pass before work is called done. ESP-IDF builds need the
   correlator, scheduler). Everything here is unit-tested on the host.
 - `src/vl/pal/`, `src/vl/platform/<target>/`: clock, lock and transport ports.
 - `src/vl/Client.*`: the public client; API modules implement `IApiModule`.
+- `src/ViraLinkCompat.h`: the 1.0.2 shim over `src/vl/compat/Bridge`. It is
+  the one library header that uses `String` and `JsonDocument`, because the
+  1.0.2 signatures do. Its host test uses the fakes in `test/support/arduino/`.
 - `test/test_*/`: Unity tests; `test/support/Fakes.h` has `FakeClock` and
   `FakeTransport`. Wire payloads are checked against golden strings.
 

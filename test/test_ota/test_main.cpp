@@ -631,6 +631,59 @@ void onShared(const char* key, JsonValue, void*) { sharedKeys.push_back(key); }
 
 // Shared attributes and OTA attached together: both see the fw_* update, and
 // OTA's package response is resolved whichever module receives it first.
+static void test_hold_defers_download_until_released() {
+  OtaRig r;
+  r.ota.hold(true);
+  std::string img = makeImage(2500);
+  r.assign(r.online(), package("2.0.0", img));
+  TEST_ASSERT_EQUAL(0, count(r.step(), "v2/fw/request/"));
+  TEST_ASSERT_EQUAL(0, r.fw.begins);
+  TEST_ASSERT_TRUE(states.empty());
+  // A package equal to the running firmware is still reported while held.
+  r.update(package("1.0.0", img));
+  expectStates({"UPDATED"});
+
+  r.update(package("2.0.0", img));
+  TEST_ASSERT_EQUAL(0, r.fw.begins);
+  r.ota.hold(false);
+  r.assign(targetRequest(r.step()), package("2.0.0", img));
+  r.serve(img);
+  TEST_ASSERT_TRUE(r.fw.image == img);
+  TEST_ASSERT_EQUAL_STRING("UPDATING", states.back().c_str());
+}
+
+static void test_hold_abandons_download_in_progress() {
+  OtaRig r;
+  std::string img = makeImage(2500);
+  r.assign(r.online(), package("2.0.0", img));
+  std::vector<Published> p = r.step();
+  unsigned req = 0, n = 0;
+  for (size_t i = 0; i < p.size(); ++i) {
+    if (isChunkRequest(p[i])) sscanf(p[i].topic.c_str(), "v2/fw/request/%u/chunk/%u", &req, &n);
+  }
+  r.chunk(req, 0, img.substr(0, 960));
+  r.ota.hold(true);
+  r.step();
+  TEST_ASSERT_EQUAL(1, r.fw.aborts);
+  // Nothing more is requested, timeouts included, and late chunks are dropped.
+  r.clock.advance(VL_OTA_CHUNK_TIMEOUT_MS * (VL_OTA_RETRIES + 2));
+  TEST_ASSERT_EQUAL(0, count(r.step(), "v2/fw/request/"));
+  r.chunk(req, 1, img.substr(960, 960));
+  TEST_ASSERT_EQUAL_UINT(960, r.fw.image.size());
+  // Nor after a reconnect.
+  r.reconnect();
+  r.assign(targetRequest(r.step()), package("2.0.0", img));
+  TEST_ASSERT_EQUAL(0, count(r.step(), "v2/fw/request/"));
+
+  // Released: the package is read again and downloaded from the start.
+  r.ota.hold(false);
+  r.assign(targetRequest(r.step()), package("2.0.0", img));
+  r.serve(img);
+  TEST_ASSERT_EQUAL(2, r.fw.begins);
+  TEST_ASSERT_TRUE(r.fw.image == img);
+  TEST_ASSERT_EQUAL_STRING("UPDATING", states.back().c_str());
+}
+
 static void test_shares_attribute_topics_with_shared_attributes() {
   ClientRig rig;
   SharedAttributes<1> shared;
@@ -673,6 +726,8 @@ int main() {
   RUN_TEST(test_url_download_unknown_size);
   RUN_TEST(test_url_download_needs_sha2);
   RUN_TEST(test_url_download_gives_up);
+  RUN_TEST(test_hold_defers_download_until_released);
+  RUN_TEST(test_hold_abandons_download_in_progress);
   RUN_TEST(test_shares_attribute_topics_with_shared_attributes);
   return UNITY_END();
 }

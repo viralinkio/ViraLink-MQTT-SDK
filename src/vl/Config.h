@@ -196,6 +196,25 @@
 #define VL_COMPAT_V1_KEYS 0
 #endif
 
+// 1.0.2 shim (ViraLinkCompat.h): outbox bytes, requestAttributesJson() calls
+// outstanding, callbacks per registerCallback*() kind, and 1 = gateway mode
+// with room for VL_COMPAT_GW_DEVICES sub-devices.
+#ifndef VL_COMPAT_OUTBOX_SIZE
+#define VL_COMPAT_OUTBOX_SIZE (16 * 1024)
+#endif
+#ifndef VL_COMPAT_MAX_REQUESTS
+#define VL_COMPAT_MAX_REQUESTS 4
+#endif
+#ifndef VL_COMPAT_CALLBACKS
+#define VL_COMPAT_CALLBACKS 4
+#endif
+#ifndef VL_COMPAT_GATEWAY
+#define VL_COMPAT_GATEWAY 0
+#endif
+#ifndef VL_COMPAT_GW_DEVICES
+#define VL_COMPAT_GW_DEVICES 8
+#endif
+
 // Persistent outbox: data records are saved when this many are unsaved or the
 // oldest unsaved change is this old (control records on the next loop()); the
 // most store segments; saved records leaving the ring between two saves.
