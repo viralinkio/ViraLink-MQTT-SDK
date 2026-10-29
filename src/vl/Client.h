@@ -211,7 +211,7 @@ class Client : private SessionListener {
   char clientId_[24] = {};
   char username_[VL_USERNAME_SIZE] = {};
   char password_[VL_PASSWORD_SIZE] = {};
-  char topicBuf_[96] = {};
+  char topicBuf_[48] = {};  // longest: v1/devices/me/attributes/request/<u32>, 43
   char txBuf_[VL_TX_BUFFER_SIZE];
 
   uint16_t bootId_ = 0;

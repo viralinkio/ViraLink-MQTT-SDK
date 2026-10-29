@@ -9,7 +9,7 @@
   },
   "license": "Apache-2.0",
   "frameworks": ["arduino", "espidf"],
-  "platforms": ["espressif32", "native"],
+  "platforms": ["espressif32", "espressif8266", "ststm32", "atmelavr", "native"],
   "headers": "ViraLink.h",
   "build": {
     "srcDir": "src",
@@ -63,6 +63,16 @@
       "name": "multi_network",
       "base": "examples/multi_network",
       "files": ["multi_network.ino"]
+    },
+    {
+      "name": "esp8266",
+      "base": "examples/esp8266",
+      "files": ["esp8266.ino"]
+    },
+    {
+      "name": "lite_avr",
+      "base": "examples/lite_avr",
+      "files": ["lite_avr.ino"]
     },
     {
       "name": "compat_v1",

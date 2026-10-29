@@ -34,8 +34,8 @@ class ISystemInfo {
   }
 };
 
-// The platform's source: ESP32 reports heap, reset reason and the WiFi station
-// link; elsewhere every value is unknown for now.
+// The platform's source: ESP32 and ESP8266 report heap, reset reason and the
+// WiFi station link, STM32 the reset reason; elsewhere every value is unknown.
 ISystemInfo& platformSystemInfo();
 
 }  // namespace vl

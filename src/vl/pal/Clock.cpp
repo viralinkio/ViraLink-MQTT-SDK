@@ -8,6 +8,9 @@
 #include "esp_timer.h"
 #elif defined(ARDUINO)
 #include <Arduino.h>
+#if VL_PLATFORM_ESP8266
+#include <sys/time.h>
+#endif
 #else
 #include <chrono>
 #endif
@@ -35,6 +38,15 @@ typedef Esp32Clock PlatformClock;
 class ArduinoClock : public IClock {
  public:
   uint64_t uptimeMs() override { return ext_.extend(millis()); }
+#if VL_PLATFORM_ESP8266
+  // Set by SNTP once the sketch calls configTime().
+  bool utcMs(uint64_t& out) override {
+    struct timeval tv;
+    if (gettimeofday(&tv, nullptr) != 0 || tv.tv_sec < static_cast<time_t>(VL_TIME_FLOOR_S)) return false;
+    out = static_cast<uint64_t>(tv.tv_sec) * 1000u + static_cast<uint64_t>(tv.tv_usec / 1000);
+    return true;
+  }
+#endif
 
  private:
   WrapSafeMillis ext_;

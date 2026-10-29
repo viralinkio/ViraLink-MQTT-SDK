@@ -10,6 +10,9 @@
 #include "esp_mac.h"
 #include "esp_random.h"
 #endif
+#elif VL_PLATFORM_ESP8266
+#include <Arduino.h>
+#include <user_interface.h>
 #elif defined(ARDUINO)
 #include <Arduino.h>
 #else
@@ -21,6 +24,8 @@ namespace vl {
 uint32_t platformRandom() {
 #if VL_PLATFORM_ESP32
   return esp_random();
+#elif VL_PLATFORM_ESP8266
+  return ESP.random();  // hardware RNG
 #elif defined(ARDUINO)
   static bool seeded = false;
   if (!seeded) {
@@ -38,6 +43,8 @@ void platformClientId(char* out, size_t cap) {
   uint8_t mac[6] = {0, 0, 0, 0, 0, 0};
 #if VL_PLATFORM_ESP32
   esp_efuse_mac_get_default(mac);
+#elif VL_PLATFORM_ESP8266
+  wifi_get_macaddr(STATION_IF, mac);
 #else
   uint32_t a = platformRandom(), b = platformRandom();
   for (int i = 0; i < 4; ++i) mac[i] = static_cast<uint8_t>(a >> (8 * i));

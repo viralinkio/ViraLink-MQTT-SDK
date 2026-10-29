@@ -4,8 +4,8 @@
 
 namespace vl {
 
-#if !VL_PLATFORM_ESP32
-// ESP32 defines these in platform/esp32/EspOta.cpp.
+#if !VL_PLATFORM_ESP32 && !VL_PLATFORM_ESP8266
+// ESP32 and ESP8266 define these in platform/<target>/.
 IFirmwareWriter* platformFirmwareWriter() { return nullptr; }
 IHttpSource* platformHttpSource() { return nullptr; }
 #endif
