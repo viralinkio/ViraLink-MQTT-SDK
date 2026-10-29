@@ -9,13 +9,16 @@ BOARDS="${BOARDS:-esp32dev}"
 # Platform per framework; override to test other arduino-esp32 / ESP-IDF releases.
 ARDUINO_PLATFORM="${ARDUINO_PLATFORM:-espressif32}"
 IDF_PLATFORM="${IDF_PLATFORM:-espressif32@6.6.0}"  # ESP-IDF 5.2
+"$ROOT/scripts/version.sh" check >/dev/null  # the three manifests must agree before anything ships
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 for board in $BOARDS; do
   for ino in "$ROOT"/examples/*/*.ino; do
     echo "== arduino $board $(basename "$ino")"
-    pio ci "$ino" --lib "$ROOT" --board "$board" -O "platform=$ARDUINO_PLATFORM" -O "framework=arduino" -O "build_flags=-Wall -Werror"
+    # ArduinoJson only for compat_v1 (ViraLinkCompat.h); the library needs none.
+    pio ci "$ino" --lib "$ROOT" --board "$board" -O "platform=$ARDUINO_PLATFORM" -O "framework=arduino" \
+      -O "build_flags=-Wall -Werror" -O "lib_deps=bblanchon/ArduinoJson@^7.4.2"
   done
 
   echo "== espidf (pio) $board espidf_basic_telemetry"
