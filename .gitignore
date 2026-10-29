@@ -4,3 +4,5 @@ examples/espidf_basic_telemetry/build/
 examples/espidf_basic_telemetry/sdkconfig
 examples/espidf_basic_telemetry/sdkconfig.old
 examples/espidf_basic_telemetry/dependencies.lock
+.idea/
+.claude/
