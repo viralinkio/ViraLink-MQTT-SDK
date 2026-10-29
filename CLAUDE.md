@@ -1,7 +1,7 @@
 # ViraLink-MQTT-SDK v2
 
 ThingsBoard-compatible MQTT device and gateway client for microcontrollers
-(ESP32 today; ESP8266, STM32 and AVR planned). The spec is
+(ESP32, ESP8266, STM32, and AVR in the Lite profile). The spec is
 `docs/design/ViraLink-MQTT-SDK v2 — Design Document.md`; read the relevant
 section before adding a feature.
 

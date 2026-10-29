@@ -1,23 +1,53 @@
 # ViraLink-MQTT-SDK v2
 
-ThingsBoard-compatible MQTT device client for ESP32 with an at-least-once
-offline outbox. Works with ViraLink Console and any ThingsBoard CE 3.6+
+ThingsBoard-compatible MQTT device client for ESP32, ESP8266, STM32 and AVR
+with an at-least-once offline outbox. Works with ViraLink Console and any ThingsBoard CE 3.6+
 server. Design: [`docs/design/`](docs/design/).
 
 **Status: 2.0.0-alpha.1.** Done: session, outbox, telemetry and attributes,
 scheduler, server- and client-side RPC, attribute requests, shared-attribute
 updates and binding, client-attribute reporting, device claiming, the
 gateway API, OTA, provisioning, health, persistence, TLS with ATECC608 keys,
-the esp-mqtt and Arduino `Client` transports, network failover, and a
-1.0.2 compatibility header. Still to come: the ESP8266/STM32/AVR ports.
+the esp-mqtt and Arduino `Client` transports, network failover, a 1.0.2
+compatibility header, and the ESP8266, STM32 and AVR (Lite) ports.
 
 ## Install
 
 | Build system | How |
 | --- | --- |
 | PlatformIO (Arduino or ESP-IDF framework) | `lib_deps = https://github.com/viralinkio/ViraLink-MQTT-SDK.git` |
-| Arduino IDE | Sketch → Include Library → Add .ZIP Library (needs arduino-esp32 ≥ 2.0) |
+| Arduino IDE | Sketch → Include Library → Add .ZIP Library (needs arduino-esp32 ≥ 2.0, the ESP8266 core ≥ 3.1, STM32duino ≥ 2.x, or Arduino AVR) |
 | ESP-IDF (`idf.py`, IDF ≥ 4.4) | Clone into `components/`, or add the path to `EXTRA_COMPONENT_DIRS` |
+
+## Platforms
+
+| Target | Profile | Transport | OTA | Health |
+| --- | --- | --- | --- | --- |
+| ESP32 (Arduino, ESP-IDF) | full | `EspMqtt`, or `StreamMqtt` over any `Client` | esp_ota with rollback; `fw_url` over `esp_http_client` | heap, reset reason, WiFi |
+| ESP8266 (Arduino) | full | `StreamMqtt` over `WiFiClient` (or any `Client`) | core `Updater`, no rollback; `fw_url` over HTTP, or HTTPS with a CA | heap, reset reason, WiFi |
+| STM32 (STM32duino) | full | `StreamMqtt` over any `Client` (Ethernet, TinyGSM) | an `IFirmwareWriter` of yours (MCUboot or dual bank) | reset reason |
+| AVR (Mega 2560) | Lite | `StreamMqtt` over `EthernetClient` | none | uptime and queue only |
+
+- **ESP8266.** The time comes from SNTP (`configTime()`). An HTTPS `fw_url`
+  needs the CA through `ota.setHttpTls()` or `Config::tls`, since the core has
+  no certificate bundle. BearSSL needs about 2 KB of heap during the
+  download when the server accepts a 1 KB maximum fragment length, and about
+  17 KB when it does not. Persistence needs an `IOutboxStore` of yours, as
+  the core's LittleFS has no `fopen()`. Example: `esp8266`.
+- **STM32.** Plain TCP; TLS goes through a TLS `Client` you configure
+  yourself. The reset reason is read from the RCC flags, which the library
+  then clears.
+- **AVR.** The Lite profile is selected automatically. It leaves out OTA,
+  the gateway, provisioning, persistence and TLS, and uses smaller buffers
+  (`VL_TX_BUFFER_SIZE` 256). There is no wall clock, so the server stamps
+  telemetry on arrival. Example: `lite_avr`.
+
+Measured with the cores' own toolchains: `lite_avr` on a Mega 2560 uses 52.7 KB
+of flash and 4.9 KB of static RAM. That RAM includes its 1 KB outbox and
+Arduino's four `Serial` objects, and leaves 3.1 KB for the stack. The
+`esp8266` example uses 429 KB of flash. Its library objects, the 8 KB outbox
+included, take 13 KB of RAM. On a Nucleo-F401RE, `test/portability` with
+every module uses 81 KB of flash and 13.8 KB of RAM.
 
 ## Use
 

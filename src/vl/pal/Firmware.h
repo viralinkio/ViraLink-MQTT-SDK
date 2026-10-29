@@ -51,7 +51,7 @@ class IHttpSource {
 };
 
 // The platform's implementations, or null where there is none (every target
-// but ESP32 so far): set one with Ota::setWriter() / Ota::setHttp().
+// but ESP32 and ESP8266): set one with Ota::setWriter() / Ota::setHttp().
 IFirmwareWriter* platformFirmwareWriter();
 IHttpSource* platformHttpSource();
 

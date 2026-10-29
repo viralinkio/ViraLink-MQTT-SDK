@@ -75,7 +75,9 @@ class StreamMqtt : public IMqttTransport {
 
  private:
   enum StateKind : uint8_t { Idle, AwaitConnack, Online };
-  static const size_t kTopicSize = 128;
+  // Longer topics are skipped and counted. Lite subscribes to nothing longer
+  // than v1/devices/me/attributes/response/<id>.
+  static const size_t kTopicSize = VL_PROFILE_LITE ? 64 : 128;
 
   bool send(const uint8_t* p, size_t n);
   void close();

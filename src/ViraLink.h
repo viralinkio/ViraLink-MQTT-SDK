@@ -23,8 +23,11 @@
 #include "vl/transport/StreamMqtt.h"
 
 #if defined(ARDUINO)
-#include "vl/se/WireI2c.h"
 #include "vl/transport/ArduinoStream.h"
+#if !VL_PROFILE_LITE
+// Lite has no TLS, so no ATECC608; this keeps Wire's buffers out of its RAM.
+#include "vl/se/WireI2c.h"
+#endif
 #endif
 
 #if VL_PLATFORM_ESP32

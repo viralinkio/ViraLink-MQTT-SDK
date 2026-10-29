@@ -11,6 +11,18 @@
 #define VL_PLATFORM_ESP32 0
 #endif
 
+#if defined(ESP8266)
+#define VL_PLATFORM_ESP8266 1
+#else
+#define VL_PLATFORM_ESP8266 0
+#endif
+
+#if defined(ARDUINO_ARCH_STM32)
+#define VL_PLATFORM_STM32 1
+#else
+#define VL_PLATFORM_STM32 0
+#endif
+
 #if defined(__AVR__)
 #define VL_PROFILE_LITE 1
 #else
@@ -49,12 +61,13 @@
 #endif
 #endif
 
-// Longest MQTT username (access token) and password + 1.
+// Longest MQTT username (access token) and password + 1. Lite fits a
+// ThingsBoard access token (20 characters by default).
 #ifndef VL_USERNAME_SIZE
-#define VL_USERNAME_SIZE 96
+#define VL_USERNAME_SIZE (VL_PROFILE_LITE ? 40 : 96)
 #endif
 #ifndef VL_PASSWORD_SIZE
-#define VL_PASSWORD_SIZE 64
+#define VL_PASSWORD_SIZE (VL_PROFILE_LITE ? 32 : 64)
 #endif
 
 // Default capacity of a PayloadBuilder returned by telemetry()/attributes().

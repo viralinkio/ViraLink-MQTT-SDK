@@ -38,6 +38,5 @@ compile esp32c3 "$PKG/toolchain-riscv32-esp/bin/riscv32-esp-elf-g++" -march=rv32
 
 for board in $BOARDS; do
   echo "== arduino $board"
-  # The library does not advertise these platforms yet, hence lib_compat_mode.
-  pio ci "$ROOT/test/portability/portability.ino" --lib "$ROOT" --board "$board" -O "lib_compat_mode=off"
+  pio ci "$ROOT/test/portability/portability.ino" --lib "$ROOT" --board "$board"
 done
